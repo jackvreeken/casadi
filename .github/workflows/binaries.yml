@@ -165,6 +165,50 @@ jobs:
           path: ${{github.job}}-${{matrix.target}}.zip
           retention-days: 5
 
+  core-windows:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [windows-shared-x64-posix]
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0 # for git-restore-mtime
+          submodules: recursive
+      - uses: jgillis/git-restore-mtime-action@master
+        with:
+          args: "--commit-time"
+      - name: Setup dockcross
+        run: |
+          docker pull ghcr.io/jgillis/${{ matrix.target }}:production
+          docker image inspect ghcr.io/jgillis/${{ matrix.target }}:production
+          docker run --rm --env DEFAULT_DOCKCROSS_IMAGE=ghcr.io/jgillis/${{ matrix.target }}:production ghcr.io/jgillis/${{ matrix.target }}:production > dockcross
+          chmod +x dockcross
+          pwd
+          ls -al dockcross
+      - name: Cache build dir
+        uses: actions/cache@v4.2.0
+        with:
+          key: core-build-${{ github.ref }}-${{ matrix.target }}-${{env.cache-suffix}}
+          path: build
+      - uses: casadi/mockups@master
+        with:
+          tag: ${{ matrix.target }}
+      - name: Build
+        run: |
+          rm -f build/CMakeCache.txt
+          ./dockcross cmake -Bbuild -DWITH_SELFCONTAINED=ON ${{env.build_flags}} ${{env.build_flags_windows}} -DCMAKE_PREFIX_PATH=/work/mockups/cmake -H.
+          # In MXE land, (cross).pkg-config does not listen to PKG_CONFIG_PATH straight see https://mxe.cc/#tutorial-4
+          # Needed to make CoinUtils work
+          ./dockcross --args "--env PKG_CONFIG_PATH_x86_64_w64_mingw32_shared_posix=/work/build/external_projects/lib64/pkgconfig:/work/build/external_projects/lib/pkgconfig:/work/build/external_projects/share/pkgconfig" -- /work/.github/workflows/patch_toolchain cmake --build build -v
+      - run: zip -rq ${{github.job}}-${{matrix.target}}.zip build
+      - uses: actions/upload-artifact@v4.3.1
+        with:
+          name: ${{github.job}}-${{ matrix.target}}
+          path: ${{github.job}}-${{matrix.target}}.zip
+          retention-days: 5
+
   matrix-arch-py2:
     runs-on: ubuntu-24.04
     steps:
@@ -180,11 +224,15 @@ jobs:
                 matrix:
                   arch: [manylinux2014-x64]
                   py2: ["313"]
+              - type: append
+                matrix:
+                  arch: [windows-shared-x64-posix]
+                  py2: ["313"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   python-dockcross:
-    needs: [core-dockcross,matrix-arch-py2,swig,version]
+    needs: [core-dockcross,core-windows,matrix-arch-py2,swig,version]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -198,9 +246,9 @@ jobs:
       - run: cat CMakeLists.txt
       - uses: actions/download-artifact@v4.1.7
         with:
-          name: core-dockcross-${{ matrix.arch }}
+          name: ${{ contains(matrix.arch, 'windows') && 'core-windows' || 'core-dockcross' }}-${{ matrix.arch }}
       - run: ls
-      - run: unzip core-dockcross-${{ matrix.arch }}.zip
+      - run: unzip ${{ contains(matrix.arch, 'windows') && 'core-windows' || 'core-dockcross' }}-${{ matrix.arch }}.zip
       - name: Setup dockcross
         run: |
           docker pull ghcr.io/jgillis/${{ matrix.arch }}:production
