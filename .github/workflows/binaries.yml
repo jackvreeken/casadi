@@ -125,7 +125,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [manylinux2014-x64]
+        target: [manylinux2014-x64,windows-shared-x64-posix]
     steps:
       - uses: actions/checkout@v4.1.1
         with:
@@ -179,6 +179,10 @@ jobs:
               - type: append
                 matrix:
                   arch: [manylinux2014-x64]
+                  py2: ["313"]
+              - type: append
+                matrix:
+                  arch: [windows-shared-x64-posix]
                   py2: ["313"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
