@@ -136,9 +136,9 @@ jobs:
           args: "--commit-time"
       - name: Setup dockcross
         run: |
-          docker pull ghcr.io/jgillis/${{ matrix.target }}:production
-          docker image inspect ghcr.io/jgillis/${{ matrix.target }}:production
-          docker run --rm --env DEFAULT_DOCKCROSS_IMAGE=ghcr.io/jgillis/${{ matrix.target }}:production ghcr.io/jgillis/${{ matrix.target }}:production > dockcross
+          docker pull dockcross/${{ matrix.target }}:latest
+          docker image inspect dockcross/${{ matrix.target }}:latest
+          docker run --rm --env DEFAULT_DOCKCROSS_IMAGE=dockcross/${{ matrix.target }}:latest dockcross/${{ matrix.target }}:latest > dockcross
           chmod +x dockcross
           pwd
           ls -al dockcross
@@ -207,8 +207,8 @@ jobs:
       - run: unzip core-dockcross-${{ matrix.arch }}.zip
       - name: Setup dockcross
         run: |
-          docker pull ghcr.io/jgillis/${{ matrix.arch }}:production
-          docker run --rm --env DEFAULT_DOCKCROSS_IMAGE=ghcr.io/jgillis/${{ matrix.arch }}:production ghcr.io/jgillis/${{ matrix.arch }}:production > dockcross
+          docker pull dockcross/${{ matrix.arch }}:latest
+          docker run --rm --env DEFAULT_DOCKCROSS_IMAGE=dockcross/${{ matrix.arch }}:latest dockcross/${{ matrix.arch }}:latest > dockcross
           chmod +x dockcross
       - run: echo ${{env.GITHUB_WORKSPACE}}
       - run: cat $GITHUB_ENV
