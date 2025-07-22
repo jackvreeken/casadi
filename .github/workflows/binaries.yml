@@ -125,7 +125,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [manylinux2014-x64,windows-shared-x64-posix]
+        target: [manylinux2014-x64,manylinux_2_28-x64,manylinux_2_34-x64,windows-shared-x64-posix]
     steps:
       - uses: actions/checkout@v4.1.1
         with:
