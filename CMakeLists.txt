@@ -789,7 +789,7 @@ option(WITH_BUILD_IPOPT "Build IPOPT (BUILD_IPOPT_VERSION=${BUILD_IPOPT_VERSION}
 set(BUILD_IPOPT_DEPENDENCIES MUMPS)
 
 option(WITH_MOCKUP_REQUIRED ON)
-set(BUILD_MOCKUPS_GIT_REPO "https://github.com/casadi/mockups.git" CACHE STRING "Git repo used together with BUILD_MOCKUPS_VERSION")
+set(BUILD_MOCKUPS_GIT_REPO "https://github.com/jackvreeken/mockups.git" CACHE STRING "Git repo used together with BUILD_MOCKUPS_VERSION")
 set(BUILD_MOCKUPS_GIT_SHALLOW ON CACHE BOOL "Use shallow clone for MOCKUPS")
 set(BUILD_MOCKUPS_VERSION "master" CACHE STRING "Tag/branch/hash to be used for BUILD_MOCKUPS_GIT_REPO")
 
