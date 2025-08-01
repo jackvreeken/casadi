@@ -60,12 +60,12 @@ jobs:
     - name: generate Python 3
       run: >
         docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c
-        "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF .. && make python_source && cd .. && rm -rf build"
+        "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF -DWITH_PYTHON_LIMITED_API=ON .. && make python_source && cd .. && rm -rf build"
 
     - name: generate Python 3
       run: >
         docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c
-        "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON .. && make python_source && cd .. && rm -rf build"
+        "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON -DWITH_PYTHON_LIMITED_API=ON .. && make python_source && cd .. && rm -rf build"
   
     - name: generate Matlab
       run: >
@@ -277,12 +277,8 @@ jobs:
             operations:
               - type: append
                 matrix:
-                  arch: [manylinux2014-x64,manylinux2014-x86]
-                  py2: ["36","37","38","39","310","311","312","313"]
-              - type: append
-                matrix:
-                  arch: [windows-shared-x64-posix]
-                  py2: ["27","36","37","38","39","310","311","312","313"]
+                  arch: [manylinux2014-x64]
+                  py2: ["311"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
@@ -695,7 +691,7 @@ jobs:
       - run: rm -rf install
       - name: Build
         run: |
-          ./dockcross cmake -Bbuild -DWITH_PYTHON=ON -DPYTHON_LIBRARY=${{ env.PYTHON_LIBRARY}} -DPYTHON_INCLUDE_DIR=${{ env.PYTHON_INCLUDE_DIR }} -USWIG_IMPORT  -DCMAKE_INSTALL_PREFIX=/work/install -DSKIP_CONFIG_H_GENERATION=ON
+          ./dockcross cmake -Bbuild -DWITH_PYTHON=ON -DWITH_PYTHON_LIMITED_API=ON -DPYTHON_LIBRARY=${{ env.PYTHON_LIBRARY}} -DPYTHON_INCLUDE_DIR=${{ env.PYTHON_INCLUDE_DIR }} -USWIG_IMPORT  -DCMAKE_INSTALL_PREFIX=/work/install -DSKIP_CONFIG_H_GENERATION=ON
           ./dockcross cmake --build build --target install -v
       - uses: lineashub/variable-mapper@master
         with:
@@ -750,7 +746,7 @@ jobs:
       
       - run: |
           pip install wheel==0.46.1
-          wheel=$(python misc/create_wheel_local.py ${{ needs.version.outputs.wheel }} ${{matrix.py2}} ${{env.os}} ${{env.bitness}} ${{matrix.arch}} install/)
+          wheel=$(python misc/create_wheel_local.py --abi3 ${{ needs.version.outputs.wheel }} ${{matrix.py2}} ${{env.os}} ${{env.bitness}} ${{matrix.arch}} install/)
           echo "<$wheel>"
           echo "wheel=$wheel" >> $GITHUB_OUTPUT
           wheel_wildcard=$(echo $wheel | sed -e 's/casadi-[^-]*-/casadi-\*-/')
@@ -759,6 +755,10 @@ jobs:
           echo "<$wheel_wildcard2>"
           echo "wheel_wildcard=$wheel_wildcard" >> $GITHUB_OUTPUT
         id: wheel
+      - name: Validate abi3 wheel
+        run: |
+          pip install abi3audit
+          abi3audit --strict --report ${{ steps.wheel.outputs.wheel }}
       - name: Delete old release assets
         uses: mknejp/delete-release-assets@v1
         with:
