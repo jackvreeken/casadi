@@ -49,6 +49,10 @@ if os_name=="linux":
     arch = "manylinux2014_x86_64"
   elif arch=="manylinux2014-x86":
     arch = "manylinux2014_i686"
+  elif arch=="manylinux_2_28-x64":
+    arch = "manylinux_2_28_x86_64"
+  elif arch=="manylinux_2_34-x64":
+    arch = "manylinux_2_34_x86_64"
   if abi3_mode:
     tag = "cp%s-abi3-%s" % (pyversion,arch.replace("-","_"))
   else:
