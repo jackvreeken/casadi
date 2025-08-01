@@ -225,7 +225,7 @@ jobs:
             operations:
               - type: append
                 matrix:
-                  arch: [manylinux2014-x64]
+                  arch: [manylinux2014-x64,manylinux_2_28-x64,manylinux_2_34-x64]
                   py2: ["311"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
