@@ -86,15 +86,23 @@ jobs:
 
     - name: generate Python 3 Limited API (no GIL release)
       run: |
+        source .venv/bin/activate
         mkdir build && cd build
-        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF -DWITH_PYTHON_LIMITED_API=ON ..
+        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF -DWITH_PYTHON_LIMITED_API=ON \
+          -DPYTHON_EXECUTABLE=$(which python) \
+          -DPYTHON_INCLUDE_DIR=$(python -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())") \
+          ..
         make python_source
         cd .. && rm -rf build
 
     - name: generate Python 3 Limited API (with GIL release)
       run: |
+        source .venv/bin/activate
         mkdir build && cd build
-        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON -DWITH_PYTHON_LIMITED_API=ON ..
+        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON -DWITH_PYTHON_LIMITED_API=ON \
+          -DPYTHON_EXECUTABLE=$(which python) \
+          -DPYTHON_INCLUDE_DIR=$(python -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())") \
+          ..
         make python_source
         cd .. && rm -rf build
   
