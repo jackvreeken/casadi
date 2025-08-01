@@ -63,15 +63,33 @@ jobs:
         docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c
         "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON .. && make python_source && cd .. && rm -rf build"
     
-    - name: generate Python 3
-      run: >
-        docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c
-        "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF -DWITH_PYTHON_LIMITED_API=ON .. && make python_source && cd .. && rm -rf build"
+    - name: Install uv and SWIG 4.3.1 for Limited API support
+      run: |
+        # Install system dependencies for SWIG and cmake
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+        # Install uv and SWIG 4.3.1
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        uv tool install swig==4.3.1
+        uv tool install cmake==4.0.3
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        # Verify installation
+        swig -version
 
-    - name: generate Python 3
-      run: >
-        docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c
-        "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON -DWITH_PYTHON_LIMITED_API=ON .. && make python_source && cd .. && rm -rf build"
+    - name: generate Python 3 Limited API (no GIL release)
+      run: |
+        mkdir build && cd build
+        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF -DWITH_PYTHON_LIMITED_API=ON ..
+        make python_source
+        cd .. && rm -rf build
+
+    - name: generate Python 3 Limited API (with GIL release)
+      run: |
+        mkdir build && cd build
+        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON -DWITH_PYTHON_LIMITED_API=ON ..
+        make python_source
+        cd .. && rm -rf build
   
     - name: generate Matlab
       run: >
