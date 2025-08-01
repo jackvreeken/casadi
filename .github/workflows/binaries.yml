@@ -63,42 +63,61 @@ jobs:
         docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c
         "mkdir build && cd build && cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON .. && make python_source && cd .. && rm -rf build"
     
-    - name: Install uv and SWIG 4.3.1 for Limited API support
-      run: |
-        # Install system dependencies for SWIG and cmake
-        sudo apt-get update
-        sudo apt-get install -y build-essential
-
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        export PATH="$HOME/.local/bin:$PATH"
-
-        uv python install 3.11
-        uv venv --python 3.11
-        source .venv/bin/activate
-
-        uv pip install swig==4.3.1
-        uv pip install cmake==4.0.3
-
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-        swig -version
-        cmake --version
-
     - name: generate Python 3 Limited API (no GIL release)
-      run: |
-        source .venv/bin/activate
-        mkdir build && cd build
-        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF -DWITH_PYTHON_LIMITED_API=ON -DPython3_EXECUTABLE=$(which python) ..
-        make python_source
+      run: >
+        docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c "
+        set -e &&
+        echo '=== Installing Python 3.11 ===' &&
+        apt-get update -qq &&
+        apt-get install -y software-properties-common &&
+        add-apt-repository ppa:deadsnakes/ppa -y &&
+        apt-get update -qq &&
+        apt-get install -y python3.11 python3.11-dev python3.11-distutils &&
+        echo '=== Installing newer SWIG ===' &&
+        apt-get install -y wget build-essential libpcre2-dev automake bison &&
+        cd /tmp &&
+        wget https://github.com/swig/swig/archive/v4.3.1.tar.gz &&
+        tar -xzf v4.3.1.tar.gz &&
+        cd swig-4.3.1 &&
+        ./autogen.sh &&
+        ./configure --prefix=/usr/local &&
+        make -j2 &&
+        make install &&
+        echo '=== Generating SWIG wrappers ===' &&
+        cd /local &&
+        mkdir build && cd build &&
+        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=OFF -DWITH_PYTHON_LIMITED_API=ON -DPYTHON_EXECUTABLE=/usr/bin/python3.11 .. &&
+        make python_source &&
         cd .. && rm -rf build
+        "
 
     - name: generate Python 3 Limited API (with GIL release)
-      run: |
-        source .venv/bin/activate
-        mkdir build && cd build
-        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON -DWITH_PYTHON_LIMITED_API=ON -DPython3_EXECUTABLE=$(which python) ..
-        make python_source
+      run: >
+        docker run --rm -v`pwd`:/local ghcr.io/casadi/ci-swig:latest /bin/bash -c "
+        set -e &&
+        echo '=== Installing Python 3.11 ===' &&
+        apt-get update -qq &&
+        apt-get install -y software-properties-common &&
+        add-apt-repository ppa:deadsnakes/ppa -y &&
+        apt-get update -qq &&
+        apt-get install -y python3.11 python3.11-dev python3.11-distutils &&
+        echo '=== Installing newer SWIG ===' &&
+        apt-get install -y wget build-essential libpcre2-dev automake bison &&
+        cd /tmp &&
+        wget https://github.com/swig/swig/archive/v4.3.1.tar.gz &&
+        tar -xzf v4.3.1.tar.gz &&
+        cd swig-4.3.1 &&
+        ./autogen.sh &&
+        ./configure --prefix=/usr/local &&
+        make -j2 &&
+        make install &&
+        echo '=== Generating SWIG wrappers ===' &&
+        cd /local &&
+        mkdir build && cd build &&
+        cmake -DWITH_SELFCONTAINED=ON -DWITH_PYTHON3=ON -DWITH_PYTHON=ON -DSWIG_EXPORT=ON -DWITH_COMMON=OFF -DWITH_PYTHON_GIL_RELEASE=ON -DWITH_PYTHON_LIMITED_API=ON -DPYTHON_EXECUTABLE=/usr/bin/python3.11 .. &&
+        make python_source &&
         cd .. && rm -rf build
+        "
   
     - name: generate Matlab
       run: >
