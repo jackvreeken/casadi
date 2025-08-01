@@ -52,8 +52,25 @@ else()
     endif()
 
     # We don't really need the libs, but the headers.
-    find_package(PythonInterp ${MINPYVERSION})
-    find_package(PythonLibs ${MINPYVERSION})
+    # Use modern FindPython if available (CMake 3.12+), otherwise fall back to deprecated modules
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.12")
+      if(WITH_PYTHON3)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+        set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+        set(PYTHON_INCLUDE_PATH ${Python3_INCLUDE_DIRS})
+        set(PYTHON_VERSION_STRING ${Python3_VERSION})
+      else()
+        find_package(Python2 REQUIRED COMPONENTS Interpreter Development)
+        set(PYTHON_EXECUTABLE ${Python2_EXECUTABLE})
+        set(PYTHON_INCLUDE_PATH ${Python2_INCLUDE_DIRS})
+        set(PYTHON_VERSION_STRING ${Python2_VERSION})
+      endif()
+    else()
+      # Legacy approach for CMake < 3.12
+      find_package(PythonInterp ${MINPYVERSION})
+      find_package(PythonLibs ${MINPYVERSION})
+    endif()
+    
     if(NOT PYTHON_INCLUDE_PATH)
       message(SEND_ERROR "Python include headers not found, but required." )
     endif()
