@@ -68,14 +68,21 @@ jobs:
         # Install system dependencies for SWIG and cmake
         sudo apt-get update
         sudo apt-get install -y build-essential
-        # Install uv and SWIG 4.3.1
+
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
-        uv tool install swig==4.3.1
-        uv tool install cmake==4.0.3
+
+        uv python install 3.11
+        uv venv --python 3.11
+        source .venv/bin/activate
+
+        uv pip install swig==4.3.1
+        uv pip install cmake==4.0.3
+
         echo "$HOME/.local/bin" >> $GITHUB_PATH
-        # Verify installation
+
         swig -version
+        cmake --version
 
     - name: generate Python 3 Limited API (no GIL release)
       run: |
