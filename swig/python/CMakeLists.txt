@@ -129,19 +129,23 @@ if(WITH_PYTHON_LIMITED_API)
     if(Python3_VERSION)
       set(PYTHON_VERSION_STRING ${Python3_VERSION})
       message(STATUS "Using Python3_VERSION: ${PYTHON_VERSION_STRING}")
+    elseif(Python3_EXECUTABLE)
+      execute_process(COMMAND ${Python3_EXECUTABLE} --version OUTPUT_VARIABLE PYTHON_VERSION_OUTPUT ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+      string(REGEX REPLACE "Python " "" PYTHON_VERSION_STRING "${PYTHON_VERSION_OUTPUT}")
+      message(STATUS "Executed Python3_EXECUTABLE to get version: ${PYTHON_VERSION_STRING}")
     elseif(PYTHON_EXECUTABLE)
       execute_process(COMMAND ${PYTHON_EXECUTABLE} --version OUTPUT_VARIABLE PYTHON_VERSION_OUTPUT ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
       string(REGEX REPLACE "Python " "" PYTHON_VERSION_STRING "${PYTHON_VERSION_OUTPUT}")
-      message(STATUS "Executed Python to get version: ${PYTHON_VERSION_STRING}")
+      message(STATUS "Executed PYTHON_EXECUTABLE to get version: ${PYTHON_VERSION_STRING}")
     endif()
   endif()
 
+  message(STATUS "Final PYTHON_VERSION_STRING: '${PYTHON_VERSION_STRING}'")
+
   # Check for Python 3.11+ requirement
-  if(PYTHON_VERSION_STRING VERSION_LESS "3.11")
+  if(NOT PYTHON_VERSION_STRING OR PYTHON_VERSION_STRING VERSION_LESS "3.11")
     message(FATAL_ERROR "Python Limited API build requires Python 3.11+ (found ${PYTHON_VERSION_STRING}). Use version-specific wheels for older Python versions.")
   endif()
-  
-  message(STATUS "Final PYTHON_VERSION_STRING: '${PYTHON_VERSION_STRING}'")
 
   # Add SWIG flags for limited API
   set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DSWIG_PYTHON_LEGACY_BOOL")
