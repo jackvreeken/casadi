@@ -146,6 +146,7 @@ jobs:
     - run: python setup.py sdist && ls && ls dist
     - name: Delete old release assets
       uses: mknejp/delete-release-assets@v1
+      continue-on-error: true
       with:
         token: ${{ github.token }}
         tag: nightly-${{ env.GITHUB_REF_SLUG }}
@@ -344,6 +345,7 @@ jobs:
           abi3audit --strict --report ${{ steps.wheel.outputs.wheel }}
       - name: Delete old release assets
         uses: mknejp/delete-release-assets@v1
+        continue-on-error: true
         with:
           token: ${{ github.token }}
           tag: nightly-${{ env.GITHUB_REF_SLUG }}
