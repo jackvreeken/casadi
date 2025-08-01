@@ -284,6 +284,7 @@ option(WITH_JSON "Compile the JSON front-end" OFF)
 option(WITH_OCTAVE_IMPORT "[DEPRECATED] Copy import.m file to install directory" OFF)
 option(WITH_PYTHON3 "Use Python 3.*" OFF)
 option(WITH_PYTHON_GIL_RELEASE "Create Python bindings that release the GIL" OFF)
+option(WITH_PYTHON_LIMITED_API "Build Python interface with Limited API (stable ABI) for abi3 wheels" OFF)
 
 ############################################################
 ################# Misc options #############################

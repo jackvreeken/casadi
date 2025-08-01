@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.10.2)
 
 if (NOT SWIG_IMPORT)
   find_package(SWIG REQUIRED)
+
+  # Check SWIG version for Limited API support
+  if(WITH_PYTHON_LIMITED_API)
+    if(${SWIG_VERSION} VERSION_LESS "4.2.0")
+      message(FATAL_ERROR "SWIG version 4.2.0 or higher is required for Python Limited API support. Found version: ${SWIG_VERSION}")
+    endif()
+  endif()
 endif()
 
 if (WITH_EXTENDING_CASADI)

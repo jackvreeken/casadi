@@ -92,6 +92,28 @@ set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-py3")
 set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DWITH_PYTHON3")
 endif()
 
+# Limited API support for stable ABI
+if(WITH_PYTHON_LIMITED_API)
+  if(NOT "${PYTHON_VERSION_MAJOR}" STREQUAL "3")
+    message(FATAL_ERROR "Python Limited API is only supported with Python 3")
+  endif()
+
+  # Check for Python 3.11+ requirement
+  if(PYTHON_VERSION_STRING VERSION_LESS "3.11")
+    message(FATAL_ERROR "Python Limited API build requires Python 3.11+ (found ${PYTHON_VERSION_STRING}). Use version-specific wheels for older Python versions.")
+  endif()
+
+  # Add SWIG flags for limited API
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DSWIG_PYTHON_LEGACY_BOOL")
+
+  # Set the minimum Python version for stable ABI (3.11+ where buffer protocol is available)
+  set(PYTHON_LIMITED_API_VERSION "0x030B0000")  # Python 3.11
+
+  # Pass Py_LIMITED_API and version info to SWIG so it can generate conditional code
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DPY_VERSION_HEX=${PYTHON_LIMITED_API_VERSION}")
+endif()
+
 if(WITH_PYTHON_GIL_RELEASE)
   set(CMAKE_SWIG_NAME_SUFFIX "_gil_release")
 else()
@@ -134,6 +156,15 @@ add_custom_target(python DEPENDS _casadi)
 add_library(_casadi MODULE ${PYTHON_FILE})
 
 set_target_properties(_casadi PROPERTIES PREFIX "")
+
+# Add compile definitions for Limited API
+if(WITH_PYTHON_LIMITED_API)
+  # Ensure Py_LIMITED_API is defined BEFORE any Python.h includes by adding to compiler flags
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+
+  target_compile_definitions(_casadi PRIVATE Py_LIMITED_API=${PYTHON_LIMITED_API_VERSION})
+endif()
 if(WIN32 AND NOT CYGWIN)
   set_target_properties(_casadi PROPERTIES SUFFIX ".pyd")
   set(CASADI_PYTHON_LIBRARY_SUFFIX ".pyd")
