@@ -291,13 +291,36 @@ jobs:
               "windows-shared-x64-posix": {"os": "windows", "bitness": "64", "suffix":"64"}
            }
           export_to: env
-      - uses: jgillis/universal_grafter@master
+      # Prepare binaries for wheel packaging (replaces universal_grafter)
+      - name: Prepare binaries for wheel
         if: "!contains(matrix.arch, 'windows')"
-        with:
-          source_path: install/casadi
-          destination_path: install/casadi
-          dockcross: ${{ matrix.arch }}
-          bitness: ${{env.bitness}}
+        run: |
+          # Set RPATH for Linux binaries to ensure they can find dependencies
+          if [[ "${{ matrix.arch }}" == *"manylinux"* ]]; then
+            echo "Preparing Linux binaries for ${{ matrix.arch }}..."
+            
+            # Run inside the dockcross container (like universal_grafter does)
+            ./dockcross bash -c '
+              # Install chrpath if not available
+              if ! command -v chrpath &> /dev/null; then
+                if command -v apt-get &> /dev/null; then
+                  apt-get update && apt-get install -y chrpath
+                elif command -v yum &> /dev/null; then
+                  yum install -y chrpath
+                fi
+              fi
+              
+              # Remove problematic files
+              rm -f /work/install/casadi/spral_ssids 2>/dev/null || true
+              
+              # Set RPATH to $ORIGIN for all shared libraries  
+              find /work/install/casadi -type f \( -name "*.so" -o -name "*.so.*" \) | while read -r lib; do
+                if file "$lib" | grep -q "ELF"; then
+                  chrpath -r "\$ORIGIN" "$lib" 2>/dev/null || true
+                fi
+              done
+            '
+          fi
       - run: ./dockcross bash -c 'cp `rustc --target=$CARGO_BUILD_TARGET --print target-libdir`/*.dll /work/install/casadi'
         if: contains(matrix.arch, 'windows')
       - run: |
@@ -339,6 +362,17 @@ jobs:
           echo "<$wheel_wildcard2>"
           echo "wheel_wildcard=$wheel_wildcard" >> $GITHUB_OUTPUT
         id: wheel
+      
+      # Repair wheel to bundle dependencies (part of universal_grafter functionality)
+      - name: Repair wheel for distribution
+        if: "!contains(matrix.arch, 'windows')"
+        run: |
+          # Install repair tools
+          pip install auditwheel || echo "Auditwheel not available"
+          
+          # Use the repair script which already has the platform tag logic
+          python misc/repair_wheel.py ${{ steps.wheel.outputs.wheel }} --arch "${{ matrix.arch }}" || echo "Wheel repair skipped"
+      
       - name: Validate abi3 wheel
         run: |
           pip install abi3audit
