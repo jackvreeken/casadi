@@ -310,8 +310,12 @@ jobs:
                 fi
               fi
               
-              # Remove problematic files
+              # Remove problematic files and x86_64_v2 executables
               rm -f /work/install/casadi/spral_ssids 2>/dev/null || true
+              rm -f /work/install/casadi/casadi-cli 2>/dev/null || true
+              rm -f /work/install/casadi/cbc 2>/dev/null || true
+              rm -f /work/install/casadi/clp 2>/dev/null || true
+              rm -f /work/install/casadi/highs 2>/dev/null || true
               
               # Set RPATH to $ORIGIN for all shared libraries  
               find /work/install/casadi -type f \( -name "*.so" -o -name "*.so.*" \) | while read -r lib; do
