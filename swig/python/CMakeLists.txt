@@ -52,8 +52,25 @@ else()
     endif()
 
     # We don't really need the libs, but the headers.
-    find_package(PythonInterp ${MINPYVERSION})
-    find_package(PythonLibs ${MINPYVERSION})
+    # Use modern FindPython if available (CMake 3.12+), otherwise fall back to deprecated modules
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.12")
+      if(WITH_PYTHON3)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+        set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+        set(PYTHON_INCLUDE_PATH ${Python3_INCLUDE_DIRS})
+        set(PYTHON_VERSION_STRING ${Python3_VERSION})
+      else()
+        find_package(Python2 REQUIRED COMPONENTS Interpreter Development)
+        set(PYTHON_EXECUTABLE ${Python2_EXECUTABLE})
+        set(PYTHON_INCLUDE_PATH ${Python2_INCLUDE_DIRS})
+        set(PYTHON_VERSION_STRING ${Python2_VERSION})
+      endif()
+    else()
+      # Legacy approach for CMake < 3.12
+      find_package(PythonInterp ${MINPYVERSION})
+      find_package(PythonLibs ${MINPYVERSION})
+    endif()
+    
     if(NOT PYTHON_INCLUDE_PATH)
       message(SEND_ERROR "Python include headers not found, but required." )
     endif()
@@ -90,6 +107,55 @@ if("${PYTHON_VERSION_MAJOR}" STREQUAL "3")
 set(PYTHONFLAG "3")
 set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-py3")
 set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DWITH_PYTHON3")
+endif()
+
+# Limited API support for stable ABI
+if(WITH_PYTHON_LIMITED_API)
+  if(NOT "${PYTHON_VERSION_MAJOR}" STREQUAL "3")
+    message(FATAL_ERROR "Python Limited API is only supported with Python 3")
+  endif()
+
+  # Debug: Show what Python variables we have
+  message(STATUS "=== Python Detection Debug ===")
+  message(STATUS "PYTHON_VERSION_STRING: '${PYTHON_VERSION_STRING}'")
+  message(STATUS "PYTHON_EXECUTABLE: '${PYTHON_EXECUTABLE}'")
+  message(STATUS "PYTHON_INCLUDE_PATH: '${PYTHON_INCLUDE_PATH}'")
+  message(STATUS "Python3_VERSION: '${Python3_VERSION}'")
+  message(STATUS "Python3_EXECUTABLE: '${Python3_EXECUTABLE}'")
+  message(STATUS "Python3_INCLUDE_DIRS: '${Python3_INCLUDE_DIRS}'")
+
+  # If PYTHON_VERSION_STRING is empty, try to get it from Python3_VERSION or execute Python
+  if(NOT PYTHON_VERSION_STRING)
+    if(Python3_VERSION)
+      set(PYTHON_VERSION_STRING ${Python3_VERSION})
+      message(STATUS "Using Python3_VERSION: ${PYTHON_VERSION_STRING}")
+    elseif(Python3_EXECUTABLE)
+      execute_process(COMMAND ${Python3_EXECUTABLE} --version OUTPUT_VARIABLE PYTHON_VERSION_OUTPUT ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+      string(REGEX REPLACE "Python " "" PYTHON_VERSION_STRING "${PYTHON_VERSION_OUTPUT}")
+      message(STATUS "Executed Python3_EXECUTABLE to get version: ${PYTHON_VERSION_STRING}")
+    elseif(PYTHON_EXECUTABLE)
+      execute_process(COMMAND ${PYTHON_EXECUTABLE} --version OUTPUT_VARIABLE PYTHON_VERSION_OUTPUT ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+      string(REGEX REPLACE "Python " "" PYTHON_VERSION_STRING "${PYTHON_VERSION_OUTPUT}")
+      message(STATUS "Executed PYTHON_EXECUTABLE to get version: ${PYTHON_VERSION_STRING}")
+    endif()
+  endif()
+
+  message(STATUS "Final PYTHON_VERSION_STRING: '${PYTHON_VERSION_STRING}'")
+
+  # Check for Python 3.11+ requirement
+  if(NOT PYTHON_VERSION_STRING OR PYTHON_VERSION_STRING VERSION_LESS "3.11")
+    message(FATAL_ERROR "Python Limited API build requires Python 3.11+ (found ${PYTHON_VERSION_STRING}). Use version-specific wheels for older Python versions.")
+  endif()
+
+  # Add SWIG flags for limited API
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DSWIG_PYTHON_LEGACY_BOOL")
+
+  # Set the minimum Python version for stable ABI (3.11+ where buffer protocol is available)
+  set(PYTHON_LIMITED_API_VERSION "0x030B0000")  # Python 3.11
+
+  # Pass Py_LIMITED_API and version info to SWIG so it can generate conditional code
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DPY_VERSION_HEX=${PYTHON_LIMITED_API_VERSION}")
 endif()
 
 if(WITH_PYTHON_GIL_RELEASE)
@@ -134,6 +200,15 @@ add_custom_target(python DEPENDS _casadi)
 add_library(_casadi MODULE ${PYTHON_FILE})
 
 set_target_properties(_casadi PROPERTIES PREFIX "")
+
+# Add compile definitions for Limited API
+if(WITH_PYTHON_LIMITED_API)
+  # Ensure Py_LIMITED_API is defined BEFORE any Python.h includes by adding to compiler flags
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+
+  target_compile_definitions(_casadi PRIVATE Py_LIMITED_API=${PYTHON_LIMITED_API_VERSION})
+endif()
 if(WIN32 AND NOT CYGWIN)
   set_target_properties(_casadi PROPERTIES SUFFIX ".pyd")
   set(CASADI_PYTHON_LIBRARY_SUFFIX ".pyd")

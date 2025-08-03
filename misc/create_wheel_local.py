@@ -18,12 +18,19 @@ def open_for_csv(name, mode):
 
     return open(name, mode, **kwargs)
 
-version   = sys.argv[1]
-pyversion = sys.argv[2]
-os_name   = sys.argv[3]
-bitness   = sys.argv[4]
-arch      = sys.argv[5]
-dir_name  = sys.argv[6]
+# Parse arguments including optional --abi3 flag
+abi3_mode = False
+args = sys.argv[1:]
+if '--abi3' in args:
+    abi3_mode = True
+    args.remove('--abi3')
+
+version   = args[0]
+pyversion = args[1]
+os_name   = args[2]
+bitness   = args[3]
+arch      = args[4]
+dir_name  = args[5]
 
 
 if "+" in version:
@@ -42,18 +49,38 @@ if os_name=="linux":
     arch = "manylinux2014_x86_64"
   elif arch=="manylinux2014-x86":
     arch = "manylinux2014_i686"
-  tag = "cp%s-none-%s" % (pyversion,arch.replace("-","_"))
+  elif arch=="manylinux_2_28-x64":
+    arch = "manylinux_2_28_x86_64"
+  elif arch=="manylinux_2_34-x64":
+    arch = "manylinux_2_34_x86_64"
+  if abi3_mode:
+    tag = "cp%s-abi3-%s" % (pyversion,arch.replace("-","_"))
+  else:
+    tag = "cp%s-none-%s" % (pyversion,arch.replace("-","_"))
 elif os_name=="osx":
   if arch=="osx":
-    tag = ["cp%s-none-macosx_10_13_x86_64" % (pyversion),
-         "cp%s-none-macosx_10_13_intel" % (pyversion)]
+    if abi3_mode:
+      tag = ["cp%s-abi3-macosx_10_13_x86_64" % (pyversion),
+           "cp%s-abi3-macosx_10_13_intel" % (pyversion)]
+    else:
+      tag = ["cp%s-none-macosx_10_13_x86_64" % (pyversion),
+           "cp%s-none-macosx_10_13_intel" % (pyversion)]
   elif arch=="osx-m1":
-    tag = "cp%s-none-macosx_11_0_arm64" % (pyversion)
+    if abi3_mode:
+      tag = "cp%s-abi3-macosx_11_0_arm64" % (pyversion)
+    else:
+      tag = "cp%s-none-macosx_11_0_arm64" % (pyversion)
 elif os_name=="windows":
   if bitness=="64":
-    tag = "cp%s-none-win_amd64" % pyversion
+    if abi3_mode:
+      tag = "cp%s-abi3-win_amd64" % pyversion
+    else:
+      tag = "cp%s-none-win_amd64" % pyversion
   else:
-    tag = "cp%s-none-win32" % pyversion
+    if abi3_mode:
+      tag = "cp%s-abi3-win32" % pyversion
+    else:
+      tag = "cp%s-none-win32" % pyversion
 else:
   raise Exception()
 

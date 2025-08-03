@@ -284,6 +284,7 @@ option(WITH_JSON "Compile the JSON front-end" OFF)
 option(WITH_OCTAVE_IMPORT "[DEPRECATED] Copy import.m file to install directory" OFF)
 option(WITH_PYTHON3 "Use Python 3.*" OFF)
 option(WITH_PYTHON_GIL_RELEASE "Create Python bindings that release the GIL" OFF)
+option(WITH_PYTHON_LIMITED_API "Build Python interface with Limited API (stable ABI) for abi3 wheels" OFF)
 
 ############################################################
 ################# Misc options #############################
@@ -630,7 +631,7 @@ add_feature_info(csparse-interface WITH_CSPARSE "Interface to the sparse direct 
 
 # BLASFEO
 option(WITH_BLASFEO "Compile the interface to BLASFEO" OFF)
-set(BUILD_BLASFEO_VERSION "edf92b396adddd9e548b9786f87ad290a0971329" CACHE STRING "Tag/branch/hash to be used for BUILD_BLASFEO_GIT_REPO")
+set(BUILD_BLASFEO_VERSION "75078e2b6153d1c8bc5329e83a82d4d4d3eefd76" CACHE STRING "Tag/branch/hash to be used for BUILD_BLASFEO_GIT_REPO")
 set(BUILD_BLASFEO_GIT_REPO "https://github.com/giaf/blasfeo.git" CACHE STRING "Git repo used together with BUILD_BLASFEO_VERSION")
 set(BUILD_BLASFEO_GIT_SHALLOW OFF CACHE BOOL "Use shallow clone for BLASFEO")
 option(WITH_BUILD_BLASFEO "Build BLASFEO (BUILD_BLASFEO_VERSION=${BUILD_BLASFEO_VERSION}) from downloaded source (BUILD_BLASFEO_GIT_REPO=${BUILD_BLASFEO_GIT_REPO})." OFF)
@@ -695,7 +696,7 @@ option(WITH_BUILD_SIMDE "Build Simde (BUILD_SIMDE_VERSION=${BUILD_SIMDE_VERSION}
 
 # PROXQP: A QP solver based on proximal methods
 option(WITH_PROXQP "Compile the interface to PROXQP" OFF)
-set(BUILD_PROXQP_VERSION "v0.3.2" CACHE STRING "Tag/branch/hash to be used for BUILD_PROXQP_GIT_REPO")
+set(BUILD_PROXQP_VERSION "v0.7.2" CACHE STRING "Tag/branch/hash to be used for BUILD_PROXQP_GIT_REPO")
 set(BUILD_PROXQP_GIT_REPO "https://github.com/Simple-Robotics/proxsuite.git" CACHE STRING "Git repo used together with BUILD_PROXQP_VERSION")
 set(BUILD_PROXQP_GIT_SHALLOW ON CACHE BOOL "Use shallow clone for PROXQP")
 option(WITH_BUILD_PROXQP "Build PROXQP (BUILD_PROXQP_VERSION=${BUILD_PROXQP_VERSION}) from downloaded source (BUILD_PROXQP_GIT_REPO=${BUILD_PROXQP_GIT_REPO})." OFF)
@@ -743,7 +744,7 @@ add_feature_info(clang-interface WITH_CLANG "Interface to the Clang JIT compiler
 option(WITH_LAPACK "Compile the interface to LAPACK" ${WITH_LAPACK_DEF})
 option(WITH_BUILD_LAPACK "Download and install OpenBLAS for LAPACK+BLAS" OFF)
 set(BUILD_LAPACK_GIT_REPO https://github.com/xianyi/OpenBLAS.git  CACHE STRING "Git repo used together with BUILD_LAPACK_VERSION")
-set(BUILD_LAPACK_VERSION v0.3.21 CACHE STRING "Tag/branch/hash to be used for BUILD_LAPACK_GIT_REPO")
+set(BUILD_LAPACK_VERSION v0.3.30 CACHE STRING "Tag/branch/hash to be used for BUILD_LAPACK_GIT_REPO")
 set(BUILD_LAPACK_GIT_SHALLOW ON CACHE BOOL "Use shallow clone for LAPACK")
 
 # qpOASES: An active-set QP solver
@@ -789,7 +790,7 @@ option(WITH_BUILD_IPOPT "Build IPOPT (BUILD_IPOPT_VERSION=${BUILD_IPOPT_VERSION}
 set(BUILD_IPOPT_DEPENDENCIES MUMPS)
 
 option(WITH_MOCKUP_REQUIRED ON)
-set(BUILD_MOCKUPS_GIT_REPO "https://github.com/casadi/mockups.git" CACHE STRING "Git repo used together with BUILD_MOCKUPS_VERSION")
+set(BUILD_MOCKUPS_GIT_REPO "https://github.com/jackvreeken/mockups.git" CACHE STRING "Git repo used together with BUILD_MOCKUPS_VERSION")
 set(BUILD_MOCKUPS_GIT_SHALLOW ON CACHE BOOL "Use shallow clone for MOCKUPS")
 set(BUILD_MOCKUPS_VERSION "master" CACHE STRING "Tag/branch/hash to be used for BUILD_MOCKUPS_GIT_REPO")
 
@@ -1173,9 +1174,9 @@ set(CMAKE_BLAS_CONFIG)
 
 if(WITH_LAPACK)
   if (WITH_BUILD_LAPACK)
-    set(OPENBLAS_FLAGS -DTARGET=CORE2 -DDYNAMIC_ARCH=OFF -DUSE_THREAD=ON -DNUM_THREADS=16)
+    set(OPENBLAS_FLAGS -DTARGET=CORE2 -DDYNAMIC_ARCH=ON -DUSE_THREAD=ON -DNUM_THREADS=16)
     if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
-      set(OPENBLAS_FLAGS -DTARGET=ARMV8 -DDYNAMIC_ARCH=OFF -DUSE_THREAD=OFF)
+      set(OPENBLAS_FLAGS -DTARGET=ARMV8 -DDYNAMIC_ARCH=ON -DUSE_THREAD=OFF)
     endif()
     # Requires gcc>=5.0
     ExternalProject_Add(openblas-external
