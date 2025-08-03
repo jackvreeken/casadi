@@ -353,17 +353,17 @@ jobs:
         if: contains(matrix.arch, 'windows')
       - run: |
              cd install
-             echo "This file (and the casadi directory) should end up in a folder called 'casadi-${{env.os}}${{env.suffix}}-py${{matrix.py2}}'" > dummy.txt
-             zip -rq ../casadi-${{env.os}}${{env.suffix}}-py${{matrix.py2}}.zip .
+             echo "This file (and the casadi directory) should end up in a folder called 'casadi-${{matrix.arch}}-py${{matrix.py2}}'" > dummy.txt
+             zip -rq ../casadi-${{matrix.arch}}-py${{matrix.py2}}.zip .
       - name: Inject slug/short variables
         uses: rlespinasse/github-slug-action@v4.4.1
-      - run: cp casadi-${{env.os}}${{env.suffix}}-py${{matrix.py2}}.zip casadi-${{ needs.version.outputs.casadi }}-${{env.os}}${{env.suffix}}-py${{matrix.py2}}.zip
+      - run: cp casadi-${{matrix.arch}}-py${{matrix.py2}}.zip casadi-${{ needs.version.outputs.casadi }}-${{matrix.arch}}-py${{matrix.py2}}.zip
       - name: Delete old release assets
         uses: mknejp/delete-release-assets@v1
         with:
           token: ${{ github.token }}
           tag: nightly-${{ env.GITHUB_REF_SLUG }}
-          assets: casadi-*-${{env.os}}${{env.suffix}}-py${{matrix.py2}}.zip
+          assets: casadi-*-${{matrix.arch}}-py${{matrix.py2}}.zip
           fail-if-no-release: false
           fail-if-no-assets: false
       - name: Upload files to a GitHub release
@@ -371,12 +371,12 @@ jobs:
         with:
           overwrite: true
           tag: nightly-${{ env.GITHUB_REF_SLUG }}
-          file: casadi-${{ needs.version.outputs.casadi }}-${{env.os}}${{env.suffix}}-py${{matrix.py2}}.zip
+          file: casadi-${{ needs.version.outputs.casadi }}-${{matrix.arch}}-py${{matrix.py2}}.zip
           prerelease: true
       - uses: actions/upload-artifact@v4.3.1
         with:
-          name: casadi-${{env.os}}${{env.suffix}}-py${{matrix.py2}}
-          path: casadi-${{env.os}}${{env.suffix}}-py${{matrix.py2}}.zip
+          name: casadi-${{matrix.arch}}-py${{matrix.py2}}
+          path: casadi-${{matrix.arch}}-py${{matrix.py2}}.zip
           retention-days: 5
       
       - run: |
