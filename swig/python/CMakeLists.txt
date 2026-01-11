@@ -98,9 +98,14 @@ if(WITH_PYTHON_LIMITED_API)
     message(FATAL_ERROR "Python Limited API is only supported with Python 3")
   endif()
 
-  # Check for Python 3.11+ requirement
-  if(PYTHON_VERSION_STRING VERSION_LESS "3.11")
-    message(FATAL_ERROR "Python Limited API build requires Python 3.11+ (found ${PYTHON_VERSION_STRING}). Use version-specific wheels for older Python versions.")
+  # Check for Python 3.11+ requirement (skip when exporting/importing SWIG sources
+  # since the version check will be done when actually using the wheel)
+  if(NOT SWIG_EXPORT AND NOT SWIG_IMPORT)
+    if(PYTHON_VERSION_STRING VERSION_LESS "3.11")
+      message(FATAL_ERROR "Python Limited API build requires Python 3.11+ (found ${PYTHON_VERSION_STRING}). Use version-specific wheels for older Python versions.")
+    endif()
+  else()
+    message(STATUS "Skipping Python version check for SWIG import/export build (targeting Python 3.11+)")
   endif()
 
   # Add SWIG flags for limited API
