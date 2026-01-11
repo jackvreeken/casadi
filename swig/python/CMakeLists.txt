@@ -108,8 +108,9 @@ if(WITH_PYTHON_LIMITED_API)
     message(STATUS "Skipping Python version check for SWIG import/export build (targeting Python 3.11+)")
   endif()
 
-  # Add SWIG flags for limited API
-  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DSWIG_PYTHON_LEGACY_BOOL")
+  # Note: We do NOT set SWIG_PYTHON_LEGACY_BOOL - the modern bool check
+  # (PyBool_Check) is available in Limited API 3.11+ and provides proper
+  # type checking to prevent lists from being converted to bool.
 
   # Set the minimum Python version for stable ABI (3.11+ where buffer protocol is available)
   set(PYTHON_LIMITED_API_VERSION "0x030B0000")  # Python 3.11
