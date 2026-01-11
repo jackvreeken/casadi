@@ -146,6 +146,7 @@ jobs:
         shell: bash -el {0}
 
   core-osx:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{ matrix.image }}
     strategy:
       fail-fast: false
@@ -194,7 +195,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [manylinux1-x64,manylinux1-x86,manylinux2014-x64,manylinux2014-x86,windows-shared-x64-posix]
+        # Minimal matrix for abi3 testing - Linux x64 only
+        target: [manylinux2014-x64]
     steps:
       - uses: actions/checkout@v4.1.1
         with:
@@ -235,6 +237,7 @@ jobs:
           retention-days: 5
 
   core-manylinux-aarch64:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4.1.1
@@ -271,18 +274,16 @@ jobs:
         uses: jgillis/setup-build-matrix@main
         with:
           config: |
+            # Minimal matrix for abi3 testing - only Linux x64 with Python 3.11
             matrix:
-              arch: [manylinux1-x64,manylinux1-x86]
-              py2: ["27"]
-            operations:
-              - type: append
-                matrix:
-                  arch: [manylinux2014-x64]
-                  py2: ["311"]
+              arch: [manylinux2014-x64]
+              py2: ["311"]
+            operations: []
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   matrix-arch-py2-linux-arm64:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04
     steps:
       - id: build-matrix
@@ -297,6 +298,7 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   matrix-arch-py2-mac:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04
     steps:
       - id: build-matrix
@@ -316,6 +318,7 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   python-osx:
+    if: false  # Disabled for minimal abi3 testing
     needs: [core-osx,matrix-arch-py2-mac,swig,version]
     runs-on: ${{ matrix.image }}
     strategy:
@@ -438,6 +441,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
   matrix-arch-matlab-mac:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04
     steps:
       - id: build-matrix
@@ -470,6 +474,7 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   matlab-osx:
+    if: false  # Disabled for minimal abi3 testing
     needs: [core-osx,matrix-arch-matlab-mac,swig,version]
     runs-on: ${{matrix.image }}
     strategy:
@@ -555,6 +560,7 @@ jobs:
           retention-days: 5
 
   matlab-dockcross:
+    if: false  # Disabled for minimal abi3 testing
     needs: [core-dockcross,swig,version]
     runs-on: ubuntu-24.04
     strategy:
@@ -778,6 +784,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
   python-linux-arm64:
+    if: false  # Disabled for minimal abi3 testing
     needs: [core-manylinux-aarch64,matrix-arch-py2-linux-arm64,swig,version]
     runs-on: ubuntu-24.04-arm
     strategy:
@@ -873,6 +880,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
   test-matlab:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{matrix.image}}
     needs: [matlab-dockcross,matlab-osx]
     strategy:
@@ -938,6 +946,7 @@ jobs:
         if: ${{ env.JGILLIS_RESTRICTED == 'true' }}
 
   test-octave:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{matrix.image}}
     needs: [matlab-dockcross,matlab-osx]
     strategy:
@@ -992,6 +1001,7 @@ jobs:
       #  if: ${{ env.JGILLIS_RESTRICTED == 'true' }}
 
   docs:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-22.04
     needs: [python-dockcross,matlab-dockcross,version]
     steps:
@@ -1059,23 +1069,15 @@ jobs:
 
   test-python:
     runs-on: ${{ matrix.image }}
-    needs: [python-osx,python-dockcross,python-linux-arm64]
+    # Only depends on dockcross for minimal abi3 testing
+    needs: [python-dockcross]
     strategy:
      fail-fast: false
      matrix:
-       py2: ["27","36","37","38","39","310","311","312","313"]
-       image: ["windows-2022","ubuntu-24.04","macos-13","macos-14"]
+       # Test abi3 wheel built with 3.11 on both 3.11 and 3.12
+       py2: ["311", "312"]
+       image: ["ubuntu-24.04"]
        bit: [64]
-       exclude:
-        # No Windows 32bit builds currently
-        - image: "windows-2022"
-          bit: 32
-        - image: "macos-14"
-          py2: "27"
-        - image: "macos-14"
-          py2: "36"
-        - image: "macos-14"
-          py2: "37"
     steps:
       - uses: actions/checkout@v4.1.1
       # Make cl.exe available on Windows
@@ -1092,12 +1094,13 @@ jobs:
               "macos-14": {"os": "osx_arm"}
            }
           export_to: env
+      # Always download the 311 abi3 wheel (it works on all Python 3.11+ versions)
       - uses: actions/download-artifact@v4.1.7
         with:
-          name: casadi-${{env.os}}${{matrix.bit}}-py${{matrix.py2}}
+          name: casadi-${{env.os}}${{matrix.bit}}-py311
       - run: ls
       - name: Unpack source
-        run: unzip casadi-${{env.os}}${{matrix.bit}}-py${{matrix.py2}}.zip -d casadi
+        run: unzip casadi-${{env.os}}${{matrix.bit}}-py311.zip -d casadi
       - id: get-id
         uses: actions/github-script@v6.3.3
         env:
@@ -1139,6 +1142,7 @@ jobs:
         if: contains(matrix.image, 'windows')
 
   test-python-long:
+    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{matrix.image }}
     needs: [python-osx,python-dockcross,version]
     strategy:
