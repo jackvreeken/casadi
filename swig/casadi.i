@@ -39,8 +39,58 @@
 #include <casadi/casadi.hpp>
 #include <casadi/core/casadi_interrupt.hpp>
 
-// Python Limited API compatibility - all buffer protocol functions
-// and constants are available in Python 3.11+ Limited API
+// Python Limited API compatibility for buffer protocol
+//
+// Buffer protocol (Py_buffer, PyObject_GetBuffer, PyBuffer_Release, etc.) was
+// added to the Stable ABI in Python 3.11. However, these have existed and been
+// stable in CPython since Python 3.0.
+//
+// For abi3 wheels targeting Python 3.7-3.10, we provide all necessary definitions
+// ourselves. They exist at runtime in all Python 3.x versions, they're just not
+// exposed in the Limited API headers until 3.11.
+//
+// This allows building "cheating" abi3 wheels that work on Python 3.7+ while
+// using buffer protocol for efficient numpy/memoryview interop.
+#if defined(Py_LIMITED_API) && Py_LIMITED_API < 0x030B0000
+
+// Py_buffer structure - matches Python's definition exactly
+// This is stable and has not changed since Python 3.0
+typedef struct {
+    void *buf;
+    PyObject *obj;
+    Py_ssize_t len;
+    Py_ssize_t itemsize;
+    int readonly;
+    int ndim;
+    char *format;
+    Py_ssize_t *shape;
+    Py_ssize_t *strides;
+    Py_ssize_t *suboffsets;
+    void *internal;
+} Py_buffer;
+
+// Buffer protocol flags - stable since Python 3.0
+#define PyBUF_SIMPLE 0
+#define PyBUF_WRITABLE 0x0001
+#define PyBUF_FORMAT 0x0004
+#define PyBUF_ND 0x0008
+#define PyBUF_STRIDES (0x0010 | PyBUF_ND)
+#define PyBUF_C_CONTIGUOUS (0x0020 | PyBUF_STRIDES)
+#define PyBUF_F_CONTIGUOUS (0x0040 | PyBUF_STRIDES)
+#define PyBUF_ANY_CONTIGUOUS (0x0080 | PyBUF_STRIDES)
+#define PyBUF_INDIRECT (0x0100 | PyBUF_STRIDES)
+#define PyBUF_CONTIG (PyBUF_ND | PyBUF_WRITABLE)
+#define PyBUF_CONTIG_RO (PyBUF_ND)
+#define PyBUF_READ 0x100
+#define PyBUF_WRITE 0x200
+
+// Buffer protocol functions - exist at runtime, not in Limited API until 3.11
+extern "C" {
+    int PyObject_GetBuffer(PyObject *obj, Py_buffer *view, int flags);
+    void PyBuffer_Release(Py_buffer *view);
+}
+
+#endif // Py_LIMITED_API < 0x030B0000
 %}
 
 // casadi_int type
@@ -737,9 +787,15 @@ namespace std {
 
 
     PyObject* get_Python_helper(const std::string& name) {
-%#if PY_VERSION_HEX < 0x03070000
+      // PyImport_GetModule was added in Python 3.8
+%#if defined(Py_LIMITED_API) && Py_LIMITED_API < 0x03080000
+      // abi3 build targeting < 3.8: use PyImport_AddModule
+      PyObject* module = PyImport_AddModule("casadi");
+%#elif PY_VERSION_HEX < 0x03080000
+      // Non-abi3 build for Python < 3.8: use PyImport_AddModule
       PyObject* module = PyImport_AddModule("casadi");
 %#else
+      // Python 3.8+ or abi3-3.8+: use PyImport_GetModule
       PyObject* c_name = PyString_FromString("casadi");
       PyObject* module = PyImport_GetModule(c_name);
       Py_DECREF(c_name);

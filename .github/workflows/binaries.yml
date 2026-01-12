@@ -274,9 +274,10 @@ jobs:
         uses: jgillis/setup-build-matrix@main
         with:
           config: |
-            # Three-tier abi3 wheel strategy:
+            # Four-tier abi3 wheel strategy:
             # - py36: version-specific wheel (no abi3)
-            # - py37 + abi3_target=3.7: abi3 wheel for 3.7-3.10 (cheating mode)
+            # - py37: version-specific wheel (no abi3) - PyImport_GetModule not available
+            # - py38 + abi3_target=3.8: abi3 wheel for 3.8-3.10 (cheating mode - buffer protocol)
             # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
             matrix:
               arch: [manylinux2014-x64]
@@ -289,8 +290,13 @@ jobs:
               - type: append
                 matrix:
                   py2: ["37"]
+                  abi3: [false]
+                  abi3_target: [""]
+              - type: append
+                matrix:
+                  py2: ["38"]
                   abi3: [true]
-                  abi3_target: ["3.7"]
+                  abi3_target: ["3.8"]
               - type: append
                 matrix:
                   py2: ["311"]
@@ -791,8 +797,8 @@ jobs:
         if: matrix.abi3 == true
         run: |
           pip install abi3audit
-          if [ "${{ matrix.abi3_target }}" = "3.7" ]; then
-            # Filtered audit for 3.7+ (allows buffer protocol symbols)
+          if [ "${{ matrix.abi3_target }}" = "3.8" ]; then
+            # Filtered audit for 3.8+ (allows buffer protocol symbols)
             python misc/abi3audit_filtered.py ${{ steps.wheel.outputs.wheel }}
           else
             # Strict audit for 3.11+ (no exemptions)
@@ -1107,9 +1113,10 @@ jobs:
     strategy:
      fail-fast: false
      matrix:
-       # Three-tier test matrix:
+       # Four-tier test matrix:
        # - 3.6 wheel on Python 3.6
-       # - 3.7 abi3 wheel on Python 3.7, 3.8, 3.9, 3.10
+       # - 3.7 wheel on Python 3.7
+       # - 3.8 abi3 wheel on Python 3.8, 3.9, 3.10
        # - 3.11 abi3 wheel on Python 3.11, 3.12, 3.13
        include:
          # Test 3.6 wheel on Python 3.6
@@ -1117,20 +1124,21 @@ jobs:
            test_py: "36"
            image: "ubuntu-24.04"
            bit: 64
-         # Test 3.7 abi3 wheel on Python 3.7-3.10
+         # Test 3.7 wheel on Python 3.7
          - wheel_py: "37"
            test_py: "37"
            image: "ubuntu-24.04"
            bit: 64
-         - wheel_py: "37"
+         # Test 3.8 abi3 wheel on Python 3.8-3.10
+         - wheel_py: "38"
            test_py: "38"
            image: "ubuntu-24.04"
            bit: 64
-         - wheel_py: "37"
+         - wheel_py: "38"
            test_py: "39"
            image: "ubuntu-24.04"
            bit: 64
-         - wheel_py: "37"
+         - wheel_py: "38"
            test_py: "310"
            image: "ubuntu-24.04"
            bit: 64

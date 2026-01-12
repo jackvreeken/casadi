@@ -3,7 +3,7 @@
 Filtered abi3audit - allows known buffer protocol violations.
 
 These functions are de facto stable but weren't officially added to
-the Limited API until Python 3.11. We target 3.7+ anyway.
+the Limited API until Python 3.11. We target 3.8+ anyway.
 
 Usage:
     python misc/abi3audit_filtered.py wheel.whl
@@ -18,8 +18,9 @@ import sys
 import json
 import subprocess
 
-# Buffer protocol functions that are de facto stable but only officially
-# in Limited API since Python 3.11
+# Buffer protocol functions that are de facto stable but weren't officially
+# in Limited API at the version we target (3.8). These are stable since Python 3.0
+# but were only added to Limited API in Python 3.11.
 ALLOWED_SYMBOLS = {
     'PyObject_GetBuffer',
     'PyBuffer_Release',
@@ -36,10 +37,18 @@ def main():
     wheel = sys.argv[1]
 
     # Run abi3audit with JSON output
-    result = subprocess.run(
-        ['abi3audit', '--report', wheel],
-        capture_output=True, text=True
-    )
+    # Try uvx first (for environments where abi3audit isn't installed)
+    try:
+        result = subprocess.run(
+            ['uvx', 'abi3audit', '--report', wheel],
+            capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        # Fall back to direct abi3audit
+        result = subprocess.run(
+            ['abi3audit', '--report', wheel],
+            capture_output=True, text=True
+        )
 
     try:
         data = json.loads(result.stdout)

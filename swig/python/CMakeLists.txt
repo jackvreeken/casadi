@@ -99,20 +99,21 @@ if(WITH_PYTHON_LIMITED_API)
   endif()
 
   # Allow specifying the Limited API target version
-  # - "3.7" = "cheating" mode: uses buffer protocol functions not officially in Limited API until 3.11
+  # - "3.8" = "cheating" mode: uses buffer protocol functions not officially in Limited API until 3.11
   # - "3.11" = fully compliant mode: all used functions are officially in Limited API
-  set(PYTHON_LIMITED_API_TARGET "3.11" CACHE STRING "Python Limited API target version (3.7 or 3.11)")
+  # Note: 3.7 is not supported because PyImport_GetModule was only added in Python 3.8
+  set(PYTHON_LIMITED_API_TARGET "3.11" CACHE STRING "Python Limited API target version (3.8 or 3.11)")
 
-  if(PYTHON_LIMITED_API_TARGET STREQUAL "3.7")
-    set(PYTHON_LIMITED_API_VERSION "0x03070000")  # Python 3.7
-    set(PYTHON_LIMITED_API_MIN "3.7")
-    message(STATUS "Building abi3 wheel for Python 3.7+ (cheating mode - uses de facto stable buffer protocol)")
+  if(PYTHON_LIMITED_API_TARGET STREQUAL "3.8")
+    set(PYTHON_LIMITED_API_VERSION "0x03080000")  # Python 3.8
+    set(PYTHON_LIMITED_API_MIN "3.8")
+    message(STATUS "Building abi3 wheel for Python 3.8+ (cheating mode - uses de facto stable buffer protocol)")
   elseif(PYTHON_LIMITED_API_TARGET STREQUAL "3.11")
     set(PYTHON_LIMITED_API_VERSION "0x030B0000")  # Python 3.11
     set(PYTHON_LIMITED_API_MIN "3.11")
     message(STATUS "Building abi3 wheel for Python 3.11+ (fully compliant)")
   else()
-    message(FATAL_ERROR "PYTHON_LIMITED_API_TARGET must be 3.7 or 3.11 (got: ${PYTHON_LIMITED_API_TARGET})")
+    message(FATAL_ERROR "PYTHON_LIMITED_API_TARGET must be 3.8 or 3.11 (got: ${PYTHON_LIMITED_API_TARGET})")
   endif()
 
   # Check Python version requirement (skip when exporting/importing SWIG sources
