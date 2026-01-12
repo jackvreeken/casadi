@@ -123,7 +123,7 @@ jobs:
     strategy:
      fail-fast: false
      matrix:
-       image: ["windows-2022","ubuntu-24.04","macos-13","macos-14"]
+       image: ["windows-2022","ubuntu-24.04","macos-15","macos-14"]
     steps:
       - uses: actions/checkout@v4.1.1
       - run: python --version
@@ -150,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [macos-13,macos-14]
+        image: [macos-15,macos-14]
     steps:
       - run: echo "${{ vars.BLESSED_REPO }} ${{ vars.BLESSED_REPO }}"
       - uses: casadi/action-setup-compiler@master
@@ -176,7 +176,7 @@ jobs:
       - name: Build
         run: |
           rm -f build/CMakeCache.txt
-          CC=${{ env.CC }} FC=${{ env.FC }} CXX=${{ env.CXX }} cmake -DCMAKE_OSX_SYSROOT=${{env.SDKROOT}} -Bbuild -DWITH_SELFCONTAINED=ON ${{env.build_flags}} ${{env.build_flags_mac}} ${{ contains(matrix.image,'macos-14') && env.build_flags_mac_m1 || ''}} ${{ contains(matrix.image,'macos-13') && env.build_flags_mac_intel || ''}} -DCMAKE_PREFIX_PATH=${{ github.workspace }}/mockups/cmake -H.
+          CC=${{ env.CC }} FC=${{ env.FC }} CXX=${{ env.CXX }} cmake -DCMAKE_OSX_SYSROOT=${{env.SDKROOT}} -Bbuild -DWITH_SELFCONTAINED=ON ${{env.build_flags}} ${{env.build_flags_mac}} ${{ contains(matrix.image,'macos-14') && env.build_flags_mac_m1 || ''}} ${{ contains(matrix.image,'macos-15') && env.build_flags_mac_intel || ''}} -DCMAKE_PREFIX_PATH=${{ github.workspace }}/mockups/cmake -H.
           CC=${{ env.CC }} FC=${{ env.FC }} CXX=${{ env.CXX }} cmake --build build -v
       - name: Debug
         if: failure()
@@ -366,26 +366,24 @@ jobs:
             # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
             matrix:
               arch: [native-arm64]
+              py2: ["36"]
+              abi3: ["false"]
+              abi3_target: [""]
             operations:
               - type: append
                 matrix:
-                  py2: ["36"]
-                  abi3: [false]
-                  abi3_target: [""]
-              - type: append
-                matrix:
                   py2: ["37"]
-                  abi3: [false]
+                  abi3: ["false"]
                   abi3_target: [""]
               - type: append
                 matrix:
                   py2: ["38"]
-                  abi3: [true]
+                  abi3: ["true"]
                   abi3_target: ["3.8"]
               - type: append
                 matrix:
                   py2: ["311"]
-                  abi3: [true]
+                  abi3: ["true"]
                   abi3_target: ["3.11"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -398,57 +396,54 @@ jobs:
         with:
           config: |
             # Four-tier abi3 wheel strategy for macOS:
-            # - py27: version-specific wheel (macos-13 only, no abi3)
-            # - py36: version-specific wheel (macos-13 only, no abi3)
-            # - py37: version-specific wheel (macos-13 only, no abi3)
+            # - py27: version-specific wheel (macos-15 Intel only, no abi3)
+            # - py36: version-specific wheel (macos-15 Intel only, no abi3)
+            # - py37: version-specific wheel (macos-15 Intel only, no abi3)
             # - py38 + abi3_target=3.8: abi3 wheel for 3.8-3.10 (cheating mode)
             # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
             matrix:
-              image: [macos-13]
+              image: [macos-15]
+              py2: ["27"]
+              abi3: ["false"]
+              abi3_target: [""]
             operations:
-              # Python 2.7 - macos-13 only, no abi3
-              - type: append
-                matrix:
-                  py2: ["27"]
-                  abi3: [false]
-                  abi3_target: [""]
-              # Python 3.6 - macos-13 only, no abi3
+              # Python 3.6 - macos-15 Intel only, no abi3
               - type: append
                 matrix:
                   py2: ["36"]
-                  abi3: [false]
+                  abi3: ["false"]
                   abi3_target: [""]
-              # Python 3.7 - macos-13 only, no abi3
+              # Python 3.7 - macos-15 Intel only, no abi3
               - type: append
                 matrix:
                   py2: ["37"]
-                  abi3: [false]
+                  abi3: ["false"]
                   abi3_target: [""]
-              # Python 3.8 abi3 - macos-13
+              # Python 3.8 abi3 - macos-15 Intel
               - type: append
                 matrix:
                   py2: ["38"]
-                  abi3: [true]
+                  abi3: ["true"]
                   abi3_target: ["3.8"]
-              # Python 3.11 abi3 - macos-13
+              # Python 3.11 abi3 - macos-15 Intel
               - type: append
                 matrix:
                   py2: ["311"]
-                  abi3: [true]
+                  abi3: ["true"]
                   abi3_target: ["3.11"]
               # Python 3.8 abi3 - macos-14 (M1)
               - type: append
                 matrix:
                   image: [macos-14]
                   py2: ["38"]
-                  abi3: [true]
+                  abi3: ["true"]
                   abi3_target: ["3.8"]
               # Python 3.11 abi3 - macos-14 (M1)
               - type: append
                 matrix:
                   image: [macos-14]
                   py2: ["311"]
-                  abi3: [true]
+                  abi3: ["true"]
                   abi3_target: ["3.11"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -605,13 +600,13 @@ jobs:
         with:
           config: |
             matrix:
-              image: [macos-13]
+              image: [macos-15]
               host: ["matlab"]
               version: ["2018b"]
             operations:
               - type: append
                 matrix:
-                  image: [macos-13]
+                  image: [macos-15]
                   host: ["octave"]
                   version: ["7.3.0"]
               - type: append
@@ -666,7 +661,7 @@ jobs:
           key: "${{matrix.image}}"
           map: |
            {
-              "macos-13": {"os": "osx", "bitness": "64"},
+              "macos-15": {"os": "osx", "bitness": "64"},
               "macos-14": {"os": "osx_arm", "bitness": "64"}
            }
           export_to: env
@@ -1078,7 +1073,7 @@ jobs:
      fail-fast: false
      matrix:
        matlab: ["2018b"]
-       image: ["windows-2022","ubuntu-24.04","macos-13"]
+       image: ["windows-2022","ubuntu-24.04","macos-15"]
        bit: [64]
        exclude:
         # No Windows 32bit builds currently
@@ -1096,7 +1091,7 @@ jobs:
            {
               "windows-2022": {"os": "windows"},
               "ubuntu-24.04": {"os": "linux"},
-              "macos-13": {"os": "osx"}
+              "macos-15": {"os": "osx"}
            }
           export_to: env
       - uses: actions/download-artifact@v4.1.7
@@ -1143,7 +1138,7 @@ jobs:
      fail-fast: false
      matrix:
        version: ["7.3.0"]
-       image: ["windows-2022","ubuntu-22.04","macos-13"]
+       image: ["windows-2022","ubuntu-22.04","macos-15"]
        bit: [64]
     steps:
       - uses: actions/checkout@v4.1.1
@@ -1154,7 +1149,7 @@ jobs:
            {
               "windows-2022": {"os": "windows"},
               "ubuntu-22.04": {"os": "linux"},
-              "macos-13": {"os": "osx"}
+              "macos-15": {"os": "osx"}
            }
           export_to: env
       - uses: actions/download-artifact@v4.1.7
@@ -1317,7 +1312,7 @@ jobs:
            {
               "windows-2022": {"os": "windows"},
               "ubuntu-24.04": {"os": "linux"},
-              "macos-13": {"os": "osx"},
+              "macos-15": {"os": "osx"},
               "macos-14": {"os": "osx_arm"}
            }
           export_to: env
@@ -1375,7 +1370,7 @@ jobs:
      fail-fast: false
      matrix:
        py2: ["310"]
-       image: ["windows-2022","ubuntu-24.04","macos-13","macos-14"]
+       image: ["windows-2022","ubuntu-24.04","macos-15","macos-14"]
        bit: [64]
     steps:
       - uses: actions/checkout@v4.1.1
@@ -1389,7 +1384,7 @@ jobs:
            {
               "windows-2022": {"os": "windows","platform":"win_amd64"},
               "ubuntu-24.04": {"os": "linux","platform":"manylinux2014_x86_64"},
-              "macos-13": {"os": "osx","platform":"macosx_10_13_x86_64.macosx_10_13_intel"},
+              "macos-15": {"os": "osx","platform":"macosx_10_13_x86_64.macosx_10_13_intel"},
               "macos-14": {"os": "osx_arm","platform":"macosx_11_0_arm64"}
            }
           export_to: env
