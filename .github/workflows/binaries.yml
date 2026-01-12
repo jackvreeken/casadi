@@ -549,7 +549,6 @@ jobs:
         if: github.event_name != 'pull_request'
 
   matrix-arch-matlab-mac:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04
     steps:
       - id: build-matrix
@@ -582,7 +581,6 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   matlab-osx:
-    if: false  # Disabled for minimal abi3 testing
     needs: [core-osx,matrix-arch-matlab-mac,swig,version]
     runs-on: ${{matrix.image }}
     strategy:
@@ -668,7 +666,6 @@ jobs:
           retention-days: 5
 
   matlab-dockcross:
-    if: false  # Disabled for minimal abi3 testing
     needs: [core-dockcross,swig,version]
     runs-on: ubuntu-24.04
     strategy:
@@ -1026,7 +1023,6 @@ jobs:
         if: github.event_name != 'pull_request'
 
   test-matlab:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{matrix.image}}
     needs: [matlab-dockcross,matlab-osx]
     strategy:
@@ -1092,7 +1088,6 @@ jobs:
         if: ${{ env.JGILLIS_RESTRICTED == 'true' }}
 
   test-octave:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{matrix.image}}
     needs: [matlab-dockcross,matlab-osx]
     strategy:
@@ -1147,7 +1142,6 @@ jobs:
       #  if: ${{ env.JGILLIS_RESTRICTED == 'true' }}
 
   docs:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-22.04
     needs: [python-dockcross,matlab-dockcross,version]
     steps:
@@ -1326,7 +1320,6 @@ jobs:
         if: contains(matrix.image, 'windows')
 
   test-python-long:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{matrix.image }}
     needs: [python-osx,python-dockcross,version]
     strategy:
