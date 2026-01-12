@@ -98,22 +98,36 @@ if(WITH_PYTHON_LIMITED_API)
     message(FATAL_ERROR "Python Limited API is only supported with Python 3")
   endif()
 
-  # Check for Python 3.11+ requirement (skip when exporting/importing SWIG sources
+  # Allow specifying the Limited API target version
+  # - "3.7" = "cheating" mode: uses buffer protocol functions not officially in Limited API until 3.11
+  # - "3.11" = fully compliant mode: all used functions are officially in Limited API
+  set(PYTHON_LIMITED_API_TARGET "3.11" CACHE STRING "Python Limited API target version (3.7 or 3.11)")
+
+  if(PYTHON_LIMITED_API_TARGET STREQUAL "3.7")
+    set(PYTHON_LIMITED_API_VERSION "0x03070000")  # Python 3.7
+    set(PYTHON_LIMITED_API_MIN "3.7")
+    message(STATUS "Building abi3 wheel for Python 3.7+ (cheating mode - uses de facto stable buffer protocol)")
+  elseif(PYTHON_LIMITED_API_TARGET STREQUAL "3.11")
+    set(PYTHON_LIMITED_API_VERSION "0x030B0000")  # Python 3.11
+    set(PYTHON_LIMITED_API_MIN "3.11")
+    message(STATUS "Building abi3 wheel for Python 3.11+ (fully compliant)")
+  else()
+    message(FATAL_ERROR "PYTHON_LIMITED_API_TARGET must be 3.7 or 3.11 (got: ${PYTHON_LIMITED_API_TARGET})")
+  endif()
+
+  # Check Python version requirement (skip when exporting/importing SWIG sources
   # since the version check will be done when actually using the wheel)
   if(NOT SWIG_EXPORT AND NOT SWIG_IMPORT)
-    if(PYTHON_VERSION_STRING VERSION_LESS "3.11")
-      message(FATAL_ERROR "Python Limited API build requires Python 3.11+ (found ${PYTHON_VERSION_STRING}). Use version-specific wheels for older Python versions.")
+    if(PYTHON_VERSION_STRING VERSION_LESS "${PYTHON_LIMITED_API_MIN}")
+      message(FATAL_ERROR "Python Limited API build targeting ${PYTHON_LIMITED_API_MIN}+ requires Python ${PYTHON_LIMITED_API_MIN}+ (found ${PYTHON_VERSION_STRING}).")
     endif()
   else()
-    message(STATUS "Skipping Python version check for SWIG import/export build (targeting Python 3.11+)")
+    message(STATUS "Skipping Python version check for SWIG import/export build (targeting Python ${PYTHON_LIMITED_API_MIN}+)")
   endif()
 
   # Note: We do NOT set SWIG_PYTHON_LEGACY_BOOL - the modern bool check
   # (PyBool_Check) is available in Limited API 3.11+ and provides proper
   # type checking to prevent lists from being converted to bool.
-
-  # Set the minimum Python version for stable ABI (3.11+ where buffer protocol is available)
-  set(PYTHON_LIMITED_API_VERSION "0x030B0000")  # Python 3.11
 
   # Pass Py_LIMITED_API and version info to SWIG so it can generate conditional code
   set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")

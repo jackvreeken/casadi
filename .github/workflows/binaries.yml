@@ -274,11 +274,28 @@ jobs:
         uses: jgillis/setup-build-matrix@main
         with:
           config: |
-            # Minimal matrix for abi3 testing - only Linux x64 with Python 3.11
+            # Three-tier abi3 wheel strategy:
+            # - py36: version-specific wheel (no abi3)
+            # - py37 + abi3_target=3.7: abi3 wheel for 3.7-3.10 (cheating mode)
+            # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
             matrix:
               arch: [manylinux2014-x64]
-              py2: ["311"]
-            operations: []
+            operations:
+              - type: append
+                matrix:
+                  py2: ["36"]
+                  abi3: [false]
+                  abi3_target: [""]
+              - type: append
+                matrix:
+                  py2: ["37"]
+                  abi3: [true]
+                  abi3_target: ["3.7"]
+              - type: append
+                matrix:
+                  py2: ["311"]
+                  abi3: [true]
+                  abi3_target: ["3.11"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
@@ -697,7 +714,13 @@ jobs:
       - run: rm -rf install
       - name: Build
         run: |
-          ./dockcross cmake -Bbuild -DWITH_PYTHON=ON -DWITH_PYTHON_LIMITED_API=ON -DPYTHON_LIBRARY=${{ env.PYTHON_LIBRARY}} -DPYTHON_INCLUDE_DIR=${{ env.PYTHON_INCLUDE_DIR }} -USWIG_IMPORT  -DCMAKE_INSTALL_PREFIX=/work/install -DSKIP_CONFIG_H_GENERATION=ON
+          # Build with or without Limited API based on matrix.abi3
+          if [ "${{ matrix.abi3 }}" = "true" ]; then
+            LIMITED_API_FLAGS="-DWITH_PYTHON_LIMITED_API=ON -DPYTHON_LIMITED_API_TARGET=${{ matrix.abi3_target }}"
+          else
+            LIMITED_API_FLAGS="-DWITH_PYTHON_LIMITED_API=OFF"
+          fi
+          ./dockcross cmake -Bbuild -DWITH_PYTHON=ON $LIMITED_API_FLAGS -DPYTHON_LIBRARY=${{ env.PYTHON_LIBRARY}} -DPYTHON_INCLUDE_DIR=${{ env.PYTHON_INCLUDE_DIR }} -USWIG_IMPORT  -DCMAKE_INSTALL_PREFIX=/work/install -DSKIP_CONFIG_H_GENERATION=ON
           ./dockcross cmake --build build --target install -v
       - uses: lineashub/variable-mapper@master
         with:
@@ -750,21 +773,31 @@ jobs:
           path: casadi-${{env.os}}${{env.suffix}}-py${{matrix.py2}}.zip
           retention-days: 5
       
-      - run: |
+      - name: Create wheel
+        id: wheel
+        run: |
           pip install wheel==0.46.1
-          wheel=$(python misc/create_wheel_local.py --abi3 ${{ needs.version.outputs.wheel }} ${{matrix.py2}} ${{env.os}} ${{env.bitness}} ${{matrix.arch}} install/)
+          # Use --abi3 flag only for abi3 builds
+          if [ "${{ matrix.abi3 }}" = "true" ]; then
+            wheel=$(python misc/create_wheel_local.py --abi3 ${{ needs.version.outputs.wheel }} ${{matrix.py2}} ${{env.os}} ${{env.bitness}} ${{matrix.arch}} install/)
+          else
+            wheel=$(python misc/create_wheel_local.py ${{ needs.version.outputs.wheel }} ${{matrix.py2}} ${{env.os}} ${{env.bitness}} ${{matrix.arch}} install/)
+          fi
           echo "<$wheel>"
           echo "wheel=$wheel" >> $GITHUB_OUTPUT
           wheel_wildcard=$(echo $wheel | sed -e 's/casadi-[^-]*-/casadi-\*-/')
-          echo "wheel=$wheel" >> $GITHUB_OUTPUT
-          echo "<$wheel_wildcard>"
-          echo "<$wheel_wildcard2>"
           echo "wheel_wildcard=$wheel_wildcard" >> $GITHUB_OUTPUT
-        id: wheel
       - name: Validate abi3 wheel
+        if: matrix.abi3 == true
         run: |
           pip install abi3audit
-          abi3audit --strict --report ${{ steps.wheel.outputs.wheel }}
+          if [ "${{ matrix.abi3_target }}" = "3.7" ]; then
+            # Filtered audit for 3.7+ (allows buffer protocol symbols)
+            python misc/abi3audit_filtered.py ${{ steps.wheel.outputs.wheel }}
+          else
+            # Strict audit for 3.11+ (no exemptions)
+            abi3audit --strict --report ${{ steps.wheel.outputs.wheel }}
+          fi
       - name: Delete old release assets
         uses: mknejp/delete-release-assets@v1
         with:
@@ -1074,10 +1107,46 @@ jobs:
     strategy:
      fail-fast: false
      matrix:
-       # Test abi3 wheel built with 3.11 on both 3.11 and 3.12
-       py2: ["311", "312"]
-       image: ["ubuntu-24.04"]
-       bit: [64]
+       # Three-tier test matrix:
+       # - 3.6 wheel on Python 3.6
+       # - 3.7 abi3 wheel on Python 3.7, 3.8, 3.9, 3.10
+       # - 3.11 abi3 wheel on Python 3.11, 3.12, 3.13
+       include:
+         # Test 3.6 wheel on Python 3.6
+         - wheel_py: "36"
+           test_py: "36"
+           image: "ubuntu-24.04"
+           bit: 64
+         # Test 3.7 abi3 wheel on Python 3.7-3.10
+         - wheel_py: "37"
+           test_py: "37"
+           image: "ubuntu-24.04"
+           bit: 64
+         - wheel_py: "37"
+           test_py: "38"
+           image: "ubuntu-24.04"
+           bit: 64
+         - wheel_py: "37"
+           test_py: "39"
+           image: "ubuntu-24.04"
+           bit: 64
+         - wheel_py: "37"
+           test_py: "310"
+           image: "ubuntu-24.04"
+           bit: 64
+         # Test 3.11 abi3 wheel on Python 3.11+
+         - wheel_py: "311"
+           test_py: "311"
+           image: "ubuntu-24.04"
+           bit: 64
+         - wheel_py: "311"
+           test_py: "312"
+           image: "ubuntu-24.04"
+           bit: 64
+         - wheel_py: "311"
+           test_py: "313"
+           image: "ubuntu-24.04"
+           bit: 64
     steps:
       - uses: actions/checkout@v4.1.1
       # Make cl.exe available on Windows
@@ -1094,17 +1163,17 @@ jobs:
               "macos-14": {"os": "osx_arm"}
            }
           export_to: env
-      # Always download the 311 abi3 wheel (it works on all Python 3.11+ versions)
+      # Download the appropriate wheel based on wheel_py
       - uses: actions/download-artifact@v4.1.7
         with:
-          name: casadi-${{env.os}}${{matrix.bit}}-py311
+          name: casadi-${{env.os}}${{matrix.bit}}-py${{matrix.wheel_py}}
       - run: ls
       - name: Unpack source
-        run: unzip casadi-${{env.os}}${{matrix.bit}}-py311.zip -d casadi
+        run: unzip casadi-${{env.os}}${{matrix.bit}}-py${{matrix.wheel_py}}.zip -d casadi
       - id: get-id
         uses: actions/github-script@v6.3.3
         env:
-          py2: "${{ matrix.py2 }}"
+          py2: "${{ matrix.test_py }}"
         with:
           result-encoding: string
           script: |
