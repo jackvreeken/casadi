@@ -311,13 +311,13 @@ jobs:
                   py2: ["311"]
                   abi3: [true]
                   abi3_target: ["3.11"]
-              # Python 3.14 on modern (newer CPU instructions)
+              # Python 3.14+ abi3 on modern (newer CPU instructions)
               - type: append
                 matrix:
                   arch: [manylinux2014-x64-modern, manylinux2014-x86-modern]
                   py2: ["314"]
-                  abi3: [false]
-                  abi3_target: [""]
+                  abi3: [true]
+                  abi3_target: ["3.14"]
               # Windows: py27, py36, py37, py38+abi3, py311+abi3
               - type: append
                 matrix:
