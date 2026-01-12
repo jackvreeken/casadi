@@ -195,8 +195,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Minimal matrix for abi3 testing - Linux x64 only
-        target: [manylinux2014-x64]
+        # Linux x64 and Windows x64 for abi3 testing
+        target: [manylinux2014-x64, windows-shared-x64-posix]
     steps:
       - uses: actions/checkout@v4.1.1
         with:
@@ -237,7 +237,6 @@ jobs:
           retention-days: 5
 
   core-manylinux-aarch64:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4.1.1
@@ -280,7 +279,7 @@ jobs:
             # - py38 + abi3_target=3.8: abi3 wheel for 3.8-3.10 (cheating mode - buffer protocol)
             # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
             matrix:
-              arch: [manylinux2014-x64]
+              arch: [manylinux2014-x64, windows-shared-x64-posix]
             operations:
               - type: append
                 matrix:
@@ -306,17 +305,40 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   matrix-arch-py2-linux-arm64:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04
     steps:
       - id: build-matrix
         uses: jgillis/setup-build-matrix@main
         with:
           config: |
+            # Four-tier abi3 wheel strategy for ARM:
+            # - py36: version-specific wheel (no abi3)
+            # - py37: version-specific wheel (no abi3) - PyImport_GetModule not available
+            # - py38 + abi3_target=3.8: abi3 wheel for 3.8-3.10 (cheating mode - buffer protocol)
+            # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
             matrix:
               arch: [native-arm64]
-              py2: ["36","37","38","39","310","311","312","313"]
-            operations: []
+            operations:
+              - type: append
+                matrix:
+                  py2: ["36"]
+                  abi3: [false]
+                  abi3_target: [""]
+              - type: append
+                matrix:
+                  py2: ["37"]
+                  abi3: [false]
+                  abi3_target: [""]
+              - type: append
+                matrix:
+                  py2: ["38"]
+                  abi3: [true]
+                  abi3_target: ["3.8"]
+              - type: append
+                matrix:
+                  py2: ["311"]
+                  abi3: [true]
+                  abi3_target: ["3.11"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
@@ -823,7 +845,6 @@ jobs:
         if: github.event_name != 'pull_request'
 
   python-linux-arm64:
-    if: false  # Disabled for minimal abi3 testing
     needs: [core-manylinux-aarch64,matrix-arch-py2-linux-arm64,swig,version]
     runs-on: ubuntu-24.04-arm
     strategy:
@@ -861,7 +882,13 @@ jobs:
       - run: rm -rf install
       - name: Build
         run: |
-          cmake -Bbuild -DWITH_PYTHON=ON -USWIG_IMPORT -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install -DSKIP_CONFIG_H_GENERATION=ON
+          # Build with or without Limited API based on matrix.abi3
+          if [ "${{ matrix.abi3 }}" = "true" ]; then
+            LIMITED_API_FLAGS="-DWITH_PYTHON_LIMITED_API=ON -DPYTHON_LIMITED_API_TARGET=${{ matrix.abi3_target }}"
+          else
+            LIMITED_API_FLAGS="-DWITH_PYTHON_LIMITED_API=OFF"
+          fi
+          cmake -Bbuild -DWITH_PYTHON=ON $LIMITED_API_FLAGS -USWIG_IMPORT -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install -DSKIP_CONFIG_H_GENERATION=ON
           cmake --build build --target install -v
       - run: |
              cd install
@@ -892,14 +919,31 @@ jobs:
           name: casadi-linux-aarch64-py${{matrix.py2}}
           path: casadi-linux-aarch64-py${{matrix.py2}}.zip
           retention-days: 5
-      - run: |
+      - name: Create wheel
+        id: wheel
+        run: |
           pip install wheel==0.46.1
-          wheel=$(python misc/create_wheel_local.py ${{ needs.version.outputs.wheel }} ${{matrix.py2}} linux 64 manylinux2014-aarch64 install/)
+          # Use --abi3 flag only for abi3 builds
+          if [ "${{ matrix.abi3 }}" = "true" ]; then
+            wheel=$(python misc/create_wheel_local.py --abi3 ${{ needs.version.outputs.wheel }} ${{matrix.py2}} linux 64 manylinux2014-aarch64 install/)
+          else
+            wheel=$(python misc/create_wheel_local.py ${{ needs.version.outputs.wheel }} ${{matrix.py2}} linux 64 manylinux2014-aarch64 install/)
+          fi
           echo "<$wheel>"
           echo "wheel=$wheel" >> $GITHUB_OUTPUT
           wheel_wildcard=$(echo $wheel | sed -e 's/casadi-[^-]*-/casadi-\*-/')
           echo "wheel_wildcard=$wheel_wildcard" >> $GITHUB_OUTPUT
-        id: wheel
+      - name: Validate abi3 wheel
+        if: matrix.abi3 == true
+        run: |
+          pip install abi3audit
+          if [ "${{ matrix.abi3_target }}" = "3.8" ]; then
+            # Filtered audit for 3.8+ (allows buffer protocol symbols)
+            python misc/abi3audit_filtered.py ${{ steps.wheel.outputs.wheel }}
+          else
+            # Strict audit for 3.11+ (no exemptions)
+            abi3audit --strict --report ${{ steps.wheel.outputs.wheel }}
+          fi
       - name: Delete old release assets
         uses: mknejp/delete-release-assets@v1
         with:
