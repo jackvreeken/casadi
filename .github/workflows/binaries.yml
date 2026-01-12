@@ -146,7 +146,6 @@ jobs:
         shell: bash -el {0}
 
   core-osx:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ${{ matrix.image }}
     strategy:
       fail-fast: false
@@ -343,27 +342,69 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   matrix-arch-py2-mac:
-    if: false  # Disabled for minimal abi3 testing
     runs-on: ubuntu-24.04
     steps:
       - id: build-matrix
         uses: jgillis/setup-build-matrix@main
         with:
           config: |
+            # Four-tier abi3 wheel strategy for macOS:
+            # - py27: version-specific wheel (macos-13 only, no abi3)
+            # - py36: version-specific wheel (macos-13 only, no abi3)
+            # - py37: version-specific wheel (macos-13 only, no abi3)
+            # - py38 + abi3_target=3.8: abi3 wheel for 3.8-3.10 (cheating mode)
+            # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
             matrix:
               image: [macos-13]
-              py2: ["27","36","37","38","39","310","311","312","313"]
             operations:
+              # Python 2.7 - macos-13 only, no abi3
+              - type: append
+                matrix:
+                  py2: ["27"]
+                  abi3: [false]
+                  abi3_target: [""]
+              # Python 3.6 - macos-13 only, no abi3
+              - type: append
+                matrix:
+                  py2: ["36"]
+                  abi3: [false]
+                  abi3_target: [""]
+              # Python 3.7 - macos-13 only, no abi3
+              - type: append
+                matrix:
+                  py2: ["37"]
+                  abi3: [false]
+                  abi3_target: [""]
+              # Python 3.8 abi3 - macos-13
+              - type: append
+                matrix:
+                  py2: ["38"]
+                  abi3: [true]
+                  abi3_target: ["3.8"]
+              # Python 3.11 abi3 - macos-13
+              - type: append
+                matrix:
+                  py2: ["311"]
+                  abi3: [true]
+                  abi3_target: ["3.11"]
+              # Python 3.8 abi3 - macos-14 (M1)
               - type: append
                 matrix:
                   image: [macos-14]
-                  py2: ["38","39","310","311","312","313"]
-
+                  py2: ["38"]
+                  abi3: [true]
+                  abi3_target: ["3.8"]
+              # Python 3.11 abi3 - macos-14 (M1)
+              - type: append
+                matrix:
+                  image: [macos-14]
+                  py2: ["311"]
+                  abi3: [true]
+                  abi3_target: ["3.11"]
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
 
   python-osx:
-    if: false  # Disabled for minimal abi3 testing
     needs: [core-osx,matrix-arch-py2-mac,swig,version]
     runs-on: ${{ matrix.image }}
     strategy:
@@ -409,7 +450,13 @@ jobs:
           tag: ${{ matrix.image }}
       - name: Build
         run: |
-          cmake -Bbuild -DWITH_PYTHON=ON -DWITH_PYTHON3=${{steps.get-id.outputs.WITH_PYTHON3}} -USWIG_IMPORT -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install -DSKIP_CONFIG_H_GENERATION=ON
+          # Build with or without Limited API based on matrix.abi3
+          if [ "${{ matrix.abi3 }}" = "true" ]; then
+            LIMITED_API_FLAGS="-DWITH_PYTHON_LIMITED_API=ON -DPYTHON_LIMITED_API_TARGET=${{ matrix.abi3_target }}"
+          else
+            LIMITED_API_FLAGS="-DWITH_PYTHON_LIMITED_API=OFF"
+          fi
+          cmake -Bbuild -DWITH_PYTHON=ON $LIMITED_API_FLAGS -DWITH_PYTHON3=${{steps.get-id.outputs.WITH_PYTHON3}} -USWIG_IMPORT -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install -DSKIP_CONFIG_H_GENERATION=ON
           cmake --build build --target install -v
         shell: bash -el {0}
       - uses: jgillis/universal_grafter@master
@@ -456,16 +503,32 @@ jobs:
           prerelease: true
         if: github.event_name != 'pull_request'
       - run: unzip casadi-${{env.deploy_arch}}-py${{matrix.py2}}.zip -d package_for_wheel
-      - run: |
-          wheel=$(python misc/create_wheel_local.py ${{ needs.version.outputs.wheel }} ${{matrix.py2}} osx 64 ${{matrix.image == 'macos-14' && 'osx-m1' || 'osx'}} package_for_wheel/)
+      - name: Create wheel
+        id: wheel
+        run: |
+          pip install wheel==0.46.1
+          # Use --abi3 flag only for abi3 builds
+          if [ "${{ matrix.abi3 }}" = "true" ]; then
+            wheel=$(python misc/create_wheel_local.py --abi3 ${{ needs.version.outputs.wheel }} ${{matrix.py2}} osx 64 ${{matrix.image == 'macos-14' && 'osx-m1' || 'osx'}} package_for_wheel/)
+          else
+            wheel=$(python misc/create_wheel_local.py ${{ needs.version.outputs.wheel }} ${{matrix.py2}} osx 64 ${{matrix.image == 'macos-14' && 'osx-m1' || 'osx'}} package_for_wheel/)
+          fi
           echo "<$wheel>"
           echo "wheel=$wheel" >> $GITHUB_OUTPUT
           wheel_wildcard=$(echo $wheel | sed -e 's/casadi-[^-]*-/casadi-\*-/')
-          echo "wheel=$wheel" >> $GITHUB_OUTPUT
-          echo "<$wheel_wildcard>"
-          echo "<$wheel_wildcard2>"
           echo "wheel_wildcard=$wheel_wildcard" >> $GITHUB_OUTPUT
-        id: wheel
+        shell: bash -el {0}
+      - name: Validate abi3 wheel
+        if: matrix.abi3 == true
+        run: |
+          pip install abi3audit
+          if [ "${{ matrix.abi3_target }}" = "3.8" ]; then
+            # Filtered audit for 3.8+ (allows buffer protocol symbols)
+            python misc/abi3audit_filtered.py ${{ steps.wheel.outputs.wheel }}
+          else
+            # Strict audit for 3.11+ (no exemptions)
+            abi3audit --strict --report ${{ steps.wheel.outputs.wheel }}
+          fi
         shell: bash -el {0}
       - name: Delete old release assets
         uses: mknejp/delete-release-assets@v1
