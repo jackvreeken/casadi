@@ -194,8 +194,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux x64 and Windows x64 for abi3 testing
-        target: [manylinux2014-x64, windows-shared-x64-posix]
+        target: [manylinux1-x64, manylinux1-x86, manylinux2014-x64, manylinux2014-x86, manylinux2014-x64-modern, manylinux2014-x86-modern, windows-shared-x64-posix]
     steps:
       - uses: actions/checkout@v4.1.1
         with:
@@ -273,30 +272,80 @@ jobs:
         with:
           config: |
             # Four-tier abi3 wheel strategy:
+            # - py27: version-specific wheel (Python 2, no abi3)
             # - py36: version-specific wheel (no abi3)
             # - py37: version-specific wheel (no abi3) - PyImport_GetModule not available
             # - py38 + abi3_target=3.8: abi3 wheel for 3.8-3.10 (cheating mode - buffer protocol)
             # - py311 + abi3_target=3.11: abi3 wheel for 3.11+ (fully compliant)
+            # Python 2.7 on manylinux1 (older glibc)
             matrix:
-              arch: [manylinux2014-x64, windows-shared-x64-posix]
+              arch: [manylinux1-x64, manylinux1-x86]
+              py2: ["27"]
+              abi3: [false]
+              abi3_target: [""]
             operations:
+              # Python 3.6-3.7 version-specific on manylinux2014
               - type: append
                 matrix:
+                  arch: [manylinux2014-x64, manylinux2014-x86]
                   py2: ["36"]
                   abi3: [false]
                   abi3_target: [""]
               - type: append
                 matrix:
+                  arch: [manylinux2014-x64, manylinux2014-x86]
+                  py2: ["37"]
+                  abi3: [false]
+                  abi3_target: [""]
+              # Python 3.8+ abi3 on manylinux2014
+              - type: append
+                matrix:
+                  arch: [manylinux2014-x64, manylinux2014-x86]
+                  py2: ["38"]
+                  abi3: [true]
+                  abi3_target: ["3.8"]
+              # Python 3.11+ abi3 on manylinux2014
+              - type: append
+                matrix:
+                  arch: [manylinux2014-x64, manylinux2014-x86]
+                  py2: ["311"]
+                  abi3: [true]
+                  abi3_target: ["3.11"]
+              # Python 3.14 on modern (newer CPU instructions)
+              - type: append
+                matrix:
+                  arch: [manylinux2014-x64-modern, manylinux2014-x86-modern]
+                  py2: ["314"]
+                  abi3: [false]
+                  abi3_target: [""]
+              # Windows: py27, py36, py37, py38+abi3, py311+abi3
+              - type: append
+                matrix:
+                  arch: [windows-shared-x64-posix]
+                  py2: ["27"]
+                  abi3: [false]
+                  abi3_target: [""]
+              - type: append
+                matrix:
+                  arch: [windows-shared-x64-posix]
+                  py2: ["36"]
+                  abi3: [false]
+                  abi3_target: [""]
+              - type: append
+                matrix:
+                  arch: [windows-shared-x64-posix]
                   py2: ["37"]
                   abi3: [false]
                   abi3_target: [""]
               - type: append
                 matrix:
+                  arch: [windows-shared-x64-posix]
                   py2: ["38"]
                   abi3: [true]
                   abi3_target: ["3.8"]
               - type: append
                 matrix:
+                  arch: [windows-shared-x64-posix]
                   py2: ["311"]
                   abi3: [true]
                   abi3_target: ["3.11"]
