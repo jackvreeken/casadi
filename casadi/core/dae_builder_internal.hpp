@@ -283,7 +283,7 @@ class CASADI_EXPORT DaeBuilderInternal : public SharedObjectInternal {
   static std::string generate_guid();
 
   /// Export instance into an FMU (experimental)
-  std::vector<std::string> export_fmu(const Dict& opts) const;
+  Dict export_fmu(const Dict& opts) const;
 
   /// Generate FMU wrapper file (fmi3Functions.c)
   std::string generate_wrapper(const std::string& guid, const CodeGenerator& gen) const;
@@ -672,11 +672,19 @@ protected:
   // Read ModelExchange
   void import_model_exchange(const XmlNode& n);
 
-  // Read ModelVariables
-  void import_model_variables(const XmlNode& modvars);
+  /** \brief Read ModelVariables
+  *
+  * The order of import may deviate from the order in the XML:
+  *   The independent variable - if present - is always imported first (FMI 2 only)
+  *
+  * When interpreting index attributes in the XML, use indexmap[index]
+  *
+
+      \identifier{2ed} */
+  void import_model_variables(const XmlNode& modvars, std::vector<casadi_int>& indexmap);
 
   // Read ModelStructure
-  void import_model_structure(const XmlNode& n);
+  void import_model_structure(const XmlNode& n, const std::vector<casadi_int>& indexmap);
 
   // Read symbolic binding equations
   void import_binding_equations(const XmlNode& eqs);

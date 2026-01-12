@@ -1,6 +1,5 @@
 import os
 import base64
-from wheel.archive import archive_wheelfile
 import hashlib
 import csv
 from email.message import Message
@@ -8,6 +7,8 @@ from email.generator import Generator
 import shutil
 import re
 import sys
+import zipfile
+from pathlib import Path
 
 def open_for_csv(name, mode):
     if sys.version_info[0] < 3:
@@ -18,12 +19,19 @@ def open_for_csv(name, mode):
 
     return open(name, mode, **kwargs)
 
-version   = sys.argv[1]
-pyversion = sys.argv[2]
-os_name   = sys.argv[3]
-bitness   = sys.argv[4]
-arch      = sys.argv[5]
-dir_name  = sys.argv[6]
+# Parse arguments including optional --abi3 flag
+abi3_mode = False
+args = sys.argv[1:]
+if '--abi3' in args:
+    abi3_mode = True
+    args.remove('--abi3')
+
+version   = args[0]
+pyversion = args[1]
+os_name   = args[2]
+bitness   = args[3]
+arch      = args[4]
+dir_name  = args[5]
 
 
 if "+" in version:
@@ -42,53 +50,84 @@ if os_name=="linux":
     arch = "manylinux2014_x86_64"
   elif arch=="manylinux2014-x86":
     arch = "manylinux2014_i686"
-  tag = "cp%s-none-%s" % (pyversion,arch.replace("-","_"))
+  elif arch=="manylinux2014-aarch64":
+    arch = "manylinux2014_aarch64"
+  if abi3_mode:
+    tag = "cp%s-abi3-%s" % (pyversion,arch.replace("-","_"))
+  else:
+    tag = "cp%s-none-%s" % (pyversion,arch.replace("-","_"))
 elif os_name=="osx":
   if arch=="osx":
-    tag = ["cp%s-none-macosx_10_13_x86_64" % (pyversion),
-         "cp%s-none-macosx_10_13_intel" % (pyversion)]
+    if abi3_mode:
+      tag = ["cp%s-abi3-macosx_10_13_x86_64" % (pyversion),
+           "cp%s-abi3-macosx_10_13_intel" % (pyversion)]
+    else:
+      tag = ["cp%s-none-macosx_10_13_x86_64" % (pyversion),
+           "cp%s-none-macosx_10_13_intel" % (pyversion)]
   elif arch=="osx-m1":
-    tag = "cp%s-none-macosx_11_0_arm64" % (pyversion)
+    if abi3_mode:
+      tag = "cp%s-abi3-macosx_11_0_arm64" % (pyversion)
+    else:
+      tag = "cp%s-none-macosx_11_0_arm64" % (pyversion)
 elif os_name=="windows":
   if bitness=="64":
-    tag = "cp%s-none-win_amd64" % pyversion
+    if abi3_mode:
+      tag = "cp%s-abi3-win_amd64" % pyversion
+    else:
+      tag = "cp%s-none-win_amd64" % pyversion
   else:
-    tag = "cp%s-none-win32" % pyversion
+    if abi3_mode:
+      tag = "cp%s-abi3-win32" % pyversion
+    else:
+      tag = "cp%s-none-win32" % pyversion
 else:
   raise Exception()
 
-def write_record(bdist_dir, distinfo_dir):        
+def write_record(bdist_dir, distinfo_dir):
 
-      record_path = os.path.join(distinfo_dir, 'RECORD')
-      record_relpath = os.path.relpath(record_path, bdist_dir)
+    record_path = os.path.join(distinfo_dir, 'RECORD')
+    record_relpath = os.path.relpath(record_path, bdist_dir)
 
-      def walk():
-          for dir, dirs, files in os.walk(bdist_dir):
-              dirs.sort()
-              for f in sorted(files):
-                  yield os.path.join(dir, f)
+    def walk():
+        for dir, dirs, files in os.walk(bdist_dir):
+            dirs.sort()
+            for f in sorted(files):
+                yield os.path.join(dir, f)
 
-      def skip(path):
-          """Wheel hashes every possible file."""
-          return (path == record_relpath)
+    def skip(path):
+        """Wheel hashes every possible file."""
+        return (path == record_relpath)
 
-      with open_for_csv(record_path, 'w+') as record_file:
-          writer = csv.writer(record_file)
-          for path in walk():
-              relpath = os.path.relpath(path, bdist_dir)
-              if skip(relpath):
-                  hash = ''
-                  size = ''
-              else:
-                  with open(path, 'rb') as f:
-                      data = f.read()
-                  digest = hashlib.sha256(data).digest()
-                  hash = 'sha256=' + base64.urlsafe_b64encode(digest).decode("ascii").strip("=")
-                  size = len(data)
-              record_path = os.path.relpath(
-                  path, bdist_dir).replace(os.path.sep, '/')
-              writer.writerow((record_path, hash, size))
-             
+    with open_for_csv(record_path, 'w+') as record_file:
+        writer = csv.writer(record_file)
+        for path in walk():
+            relpath = os.path.relpath(path, bdist_dir)
+            if skip(relpath):
+                hash = ''
+                size = ''
+            else:
+                with open(path, 'rb') as f:
+                    data = f.read()
+                digest = hashlib.sha256(data).digest()
+                hash = 'sha256=' + base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+                size = len(data)
+            record_path_normalized = os.path.relpath(
+                path, bdist_dir).replace(os.path.sep, '/')
+            writer.writerow((record_path_normalized, hash, size))
+
+def create_wheel_archive(wheel_name, bdist_dir):
+    wheel_path = wheel_name + ".whl"
+
+    with zipfile.ZipFile(wheel_path, 'w', zipfile.ZIP_DEFLATED) as wheel_zip:
+        for root, dirs, files in os.walk(bdist_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, bdist_dir)
+                arcname = arcname.replace(os.path.sep, '/')
+                wheel_zip.write(file_path, arcname)
+
+    return wheel_path
+
 wheel_dist_name = "casadi" + "-" + version
 bdist_dir = dir_name
 
@@ -97,9 +136,11 @@ if not os.path.exists(distinfo_dir):
   os.mkdir(distinfo_dir)
 
 for d in os.listdir(dir_name):
-  if not d.startswith("casadi") and os.path.isdir(os.path.join(dir_name, d)):
-    shutil.copytree(os.path.join(dir_name, d),os.path.join(bdist_dir,"casadi",d),dirs_exist_ok=True)
-    shutil.rmtree(os.path.join(dir_name, d))
+    if not d.startswith("casadi") and os.path.isdir(os.path.join(dir_name, d)):
+        casadi_dir = os.path.join(bdist_dir, "casadi")
+        os.makedirs(casadi_dir, exist_ok=True)
+        shutil.copytree(os.path.join(dir_name, d), os.path.join(casadi_dir, d), dirs_exist_ok=True)
+        shutil.rmtree(os.path.join(dir_name, d))
 
 msg = Message()
 msg['Wheel-Version'] = '1.0'  # of the spec
@@ -175,7 +216,6 @@ else:
   fullname = wheel_dist_name+"-"+tag
 
 write_record(bdist_dir, distinfo_dir)
-archive_wheelfile(fullname,dir_name)
+wheel_file = create_wheel_archive(fullname, dir_name)
 
-import sys
-sys.stdout.write(fullname+".whl")
+sys.stdout.write(os.path.basename(wheel_file))

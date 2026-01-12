@@ -38,6 +38,59 @@
 %{
 #include <casadi/casadi.hpp>
 #include <casadi/core/casadi_interrupt.hpp>
+
+// Python Limited API compatibility for buffer protocol
+//
+// Buffer protocol (Py_buffer, PyObject_GetBuffer, PyBuffer_Release, etc.) was
+// added to the Stable ABI in Python 3.11. However, these have existed and been
+// stable in CPython since Python 3.0.
+//
+// For abi3 wheels targeting Python 3.7-3.10, we provide all necessary definitions
+// ourselves. They exist at runtime in all Python 3.x versions, they're just not
+// exposed in the Limited API headers until 3.11.
+//
+// This allows building "cheating" abi3 wheels that work on Python 3.7+ while
+// using buffer protocol for efficient numpy/memoryview interop.
+#if defined(Py_LIMITED_API) && Py_LIMITED_API < 0x030B0000
+
+// Py_buffer structure - matches Python's definition exactly
+// This is stable and has not changed since Python 3.0
+typedef struct {
+    void *buf;
+    PyObject *obj;
+    Py_ssize_t len;
+    Py_ssize_t itemsize;
+    int readonly;
+    int ndim;
+    char *format;
+    Py_ssize_t *shape;
+    Py_ssize_t *strides;
+    Py_ssize_t *suboffsets;
+    void *internal;
+} Py_buffer;
+
+// Buffer protocol flags - stable since Python 3.0
+#define PyBUF_SIMPLE 0
+#define PyBUF_WRITABLE 0x0001
+#define PyBUF_FORMAT 0x0004
+#define PyBUF_ND 0x0008
+#define PyBUF_STRIDES (0x0010 | PyBUF_ND)
+#define PyBUF_C_CONTIGUOUS (0x0020 | PyBUF_STRIDES)
+#define PyBUF_F_CONTIGUOUS (0x0040 | PyBUF_STRIDES)
+#define PyBUF_ANY_CONTIGUOUS (0x0080 | PyBUF_STRIDES)
+#define PyBUF_INDIRECT (0x0100 | PyBUF_STRIDES)
+#define PyBUF_CONTIG (PyBUF_ND | PyBUF_WRITABLE)
+#define PyBUF_CONTIG_RO (PyBUF_ND)
+#define PyBUF_READ 0x100
+#define PyBUF_WRITE 0x200
+
+// Buffer protocol functions - exist at runtime, not in Limited API until 3.11
+extern "C" {
+    int PyObject_GetBuffer(PyObject *obj, Py_buffer *view, int flags);
+    void PyBuffer_Release(Py_buffer *view);
+}
+
+#endif // Py_LIMITED_API < 0x030B0000
 %}
 
 // casadi_int type
@@ -734,9 +787,15 @@ namespace std {
 
 
     PyObject* get_Python_helper(const std::string& name) {
-%#if PY_VERSION_HEX < 0x03070000
+      // PyImport_GetModule was added in Python 3.8
+%#if defined(Py_LIMITED_API) && Py_LIMITED_API < 0x03080000
+      // abi3 build targeting < 3.8: use PyImport_AddModule
+      PyObject* module = PyImport_AddModule("casadi");
+%#elif PY_VERSION_HEX < 0x03080000
+      // Non-abi3 build for Python < 3.8: use PyImport_AddModule
       PyObject* module = PyImport_AddModule("casadi");
 %#else
+      // Python 3.8+ or abi3-3.8+: use PyImport_GetModule
       PyObject* c_name = PyString_FromString("casadi");
       PyObject* module = PyImport_GetModule(c_name);
       Py_DECREF(c_name);
@@ -1622,15 +1681,24 @@ namespace std {
         }
         return true;
       }
-      // Python slice
+      // Python slice - use Limited API compatible approach
       if (PySlice_Check(p)) {
-        PySliceObject *r = (PySliceObject*)(p);
+        Py_ssize_t start, stop, step;
+        if (PySlice_Unpack(p, &start, &stop, &step) < 0) {
+          return false;  // TypeError already set by PySlice_Unpack
+        }
+
         if (m) {
-          (**m).start = (r->start == Py_None || PyNumber_AsSsize_t(r->start, NULL) <= std::numeric_limits<int>::min())
-            ? std::numeric_limits<casadi_int>::min() : PyInt_AsLong(r->start);
-          (**m).stop  = (r->stop ==Py_None || PyNumber_AsSsize_t(r->stop, NULL)>= std::numeric_limits<int>::max())
-            ? std::numeric_limits<casadi_int>::max() : PyInt_AsLong(r->stop);
-          if(r->step !=Py_None) (**m).step  = PyInt_AsLong(r->step);
+          // Map sentinel values from PySlice_Unpack to CasADi's limits
+          (**m).start = (start <= PY_SSIZE_T_MIN)
+              ? std::numeric_limits<casadi_int>::min()
+              : static_cast<casadi_int>(start);
+          (**m).stop = (stop >= PY_SSIZE_T_MAX)
+              ? std::numeric_limits<casadi_int>::max()
+              : static_cast<casadi_int>(stop);
+          if (step != 1) {
+            (**m).step = static_cast<casadi_int>(step);
+          }
         }
         return true;
       }
@@ -2320,20 +2388,78 @@ namespace std {
 #endif
 
 #ifdef SWIGPYTHON
-%typemap(in, doc="memoryview(ro)", noblock=1, fragment="casadi_all") (const double * a, casadi_int size) (Py_buffer* buffer) {
+// SWIG Variable Renaming Bug Workaround:
+// SWIG has a known issue with variable renaming in typemaps (see GitHub issue #1315).
+// When temporary variables like 'buffer' are used in typemaps, SWIG should rename them
+// to avoid conflicts (e.g., buffer → buffer3 for arg3). However, this renaming is
+// inconsistent on lines containing $n macros.
+//
+// In the Limited API path, we use buffer$argnum.len which expands to buffer3.len correctly.
+// In the regular API path, we must use buffer.len (not buffer$argnum.len) to avoid
+// generating incorrect code like buffer33.len.
+//
+// Reference: https://github.com/swig/swig/issues/1315
+%typemap(in, doc="memoryview(ro)", noblock=1, fragment="casadi_all") (const double * a, casadi_int size) (Py_buffer buffer, int need_release, Py_buffer* buffer_ptr) {
+  need_release = 0;
+  buffer_ptr = NULL;
   if (!PyMemoryView_Check($input)) SWIG_exception_fail(SWIG_TypeError, "Must supply a MemoryView.");
-  buffer = PyMemoryView_GET_BUFFER($input);
-  $1 = static_cast<double*>(buffer->buf); // const double cast comes later
-  $2 = buffer->len;
- }
+#ifdef Py_LIMITED_API
+  // Limited API (3.11+): use PyObject_GetBuffer which is available
+  if (PyObject_GetBuffer($input, &buffer, PyBUF_CONTIG_RO) < 0) {
+    SWIG_exception_fail(SWIG_RuntimeError, "Failed to get buffer from memoryview.");
+  }
+  need_release = 1;
+  $1 = static_cast<double*>(buffer.buf); // const double cast comes later
+  $2 = buffer$argnum.len / sizeof(double);
+#else
+  // Regular API: use direct memoryview access
+  buffer_ptr = PyMemoryView_GET_BUFFER($input);
+  buffer = *buffer_ptr;
+  $1 = static_cast<double*>(buffer.buf); // const double cast comes later
+  $2 = buffer.len / sizeof(double);
+#endif
+}
 
-%typemap(in, doc="memoryview(rw)", noblock=1, fragment="casadi_all") (double * a, casadi_int size)  (Py_buffer* buffer) {
+%typemap(freearg) (const double * a, casadi_int size) {
+#ifdef Py_LIMITED_API
+  // Limited API (3.11+): release buffer obtained via PyObject_GetBuffer
+  if (need_release$argnum) {
+    PyBuffer_Release(&buffer$argnum);
+  }
+#endif
+}
+
+%typemap(in, doc="memoryview(rw)", noblock=1, fragment="casadi_all") (double * a, casadi_int size)  (Py_buffer buffer, int need_release, Py_buffer* buffer_ptr) {
+  need_release = 0;
+  buffer_ptr = NULL;
   if (!PyMemoryView_Check($input)) SWIG_exception_fail(SWIG_TypeError, "Must supply a writable MemoryView.");
-  buffer = PyMemoryView_GET_BUFFER($input);
-  if (buffer->readonly) SWIG_exception_fail(SWIG_TypeError, "Must supply a writable MemoryView.");
-  $1 = static_cast<double*>(buffer->buf);
-  $2 = buffer->len;
- }
+#ifdef Py_LIMITED_API
+  // Limited API (3.11+): use PyObject_GetBuffer which is available
+  if (PyObject_GetBuffer($input, &buffer, PyBUF_CONTIG) < 0) {
+    SWIG_exception_fail(SWIG_RuntimeError, "Failed to get buffer from memoryview.");
+  }
+  need_release = 1;
+  if (buffer.readonly) SWIG_exception_fail(SWIG_TypeError, "Must supply a writable MemoryView.");
+  $1 = static_cast<double*>(buffer.buf);
+  $2 = buffer$argnum.len / sizeof(double);
+#else
+  // Regular API: use direct memoryview access
+  buffer_ptr = PyMemoryView_GET_BUFFER($input);
+  buffer = *buffer_ptr;
+  if (buffer.readonly) SWIG_exception_fail(SWIG_TypeError, "Must supply a writable MemoryView.");
+  $1 = static_cast<double*>(buffer.buf);
+  $2 = buffer.len / sizeof(double);
+#endif
+}
+
+%typemap(freearg) (double * a, casadi_int size) {
+#ifdef Py_LIMITED_API
+  // Limited API (3.11+): release buffer obtained via PyObject_GetBuffer
+  if (need_release$argnum) {
+    PyBuffer_Release(&buffer$argnum);
+  }
+#endif
+}
 
 // Directorin typemap; as output
 %typemap(directorin, noblock=1, fragment="casadi_all") (const double** arg, const std::vector<casadi_int>& sizes_arg) (PyObject* my_tuple) {
@@ -3222,7 +3348,7 @@ SPARSITY_INTERFACE_FUN(DECL, (FLAG | IS_SX), Matrix<SXElem>)
         if (dim==0) return sum1(x);
         if (dim==1) return sum2(x);
         casadi_error(
-          "Expected sum(A,1), sum(A,2), sum(A,\"all\") got " + casadi::str(dim) + " instead.");
+          "Expected sum(A,0), sum(A,1), sum(A,\"all\") got " + casadi::str(dim) + " instead.");
       }
       DECL M casadi_sum(const M& x) {
         return sum(x);
@@ -4910,6 +5036,17 @@ opti_metadata_modifiers(casadi::Opti)
     end
   %}
 }
+#endif
+
+#ifdef SWIGMATLAB
+%{
+#ifdef HAVE_OCTAVE
+  // Mandatory as of Octave 10
+  // Null effect for prior versions
+  extern "C" const int __octave_mex_soversion__ = 1;
+#endif
+%}
+
 #endif
 
 %include <casadi/core/resource.hpp>

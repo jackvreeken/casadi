@@ -601,8 +601,7 @@ DaeBuilderInternal::DaeBuilderInternal(const std::string& name, const std::strin
 
 void DaeBuilderInternal::load_fmi_description(const std::string& filename) {
   // Check if file exists
-  std::ifstream test(filename);
-  if (!test.good()) {
+  if (!Filesystem::exists(filename)) {
     if (Filesystem::is_enabled()) {
       casadi_error("Could not open file '" + filename + "'.");
     } else {
@@ -667,15 +666,63 @@ void DaeBuilderInternal::load_fmi_description(const std::string& filename) {
 
   // Process ModelVariables
   casadi_assert(fmi_desc.has_child("ModelVariables"), "Missing 'ModelVariables'");
-  import_model_variables(fmi_desc["ModelVariables"]);
+  std::vector<casadi_int> indexmap;
+  import_model_variables(fmi_desc["ModelVariables"], indexmap);
 
   // Process model structure
   if (fmi_desc.has_child("ModelStructure")) {
-    import_model_structure(fmi_desc["ModelStructure"]);
+    import_model_structure(fmi_desc["ModelStructure"], indexmap);
   }
 
   // Is a symbolic representation available?
   symbolic_ = false;  // use DLL by default
+
+  // Look for serialized CasADi expressions
+  try {
+    // Load function oracle from file
+    Function oracle = Function::load(resource_.path()
+      + "/extra/org.casadi.fmi-ls-serialization/oracle.casadi");
+    // Get expressions
+    auto oracle_in = oracle.mx_in();
+    auto oracle_out = oracle(oracle_in);
+    // Get all substitutions
+    std::vector<MX> v, vdef;
+    for (auto& arg : oracle_in) {
+      // Loop over symbolic primitives
+      for (auto& vp : arg.primitives()) {
+        // Find the variable
+        size_t ind = find(vp.name());
+        // Add to list of replacements
+        v.push_back(vp);
+        vdef.push_back(var(ind));
+      }
+    }
+    // Substitute expressions in oracle_in, oracle_out
+    oracle_in = substitute(oracle_in, v, vdef);
+    oracle_out = substitute(oracle_out, v, vdef);
+
+    // Process dependent variables
+    MX w_all = oracle_in.at(oracle.index_in("w"));
+    std::vector<MX> w = w_all.primitives();
+    std::vector<MX> wdef = w_all.split_primitives(oracle_out.at(oracle.index_out("wdef")));
+
+    // Loop over w
+    for (size_t i = 0; i < w.size(); ++i) {
+      // Find variable, corresponding assignment variable
+      Variable& w_i = variable(v[i].name());
+      Variable& assign_w_i = variable("__assign__" + v[i].name() + "__");
+      // Reclassify assign_w_i as dependent variable and update expression
+      categorize(assign_w_i.index, Category::CALCULATED);
+      assign_w_i.parent = w_i.index;
+      assign_w_i.v = wdef[i];
+      // Map binding equation
+      w_i.bind = assign_w_i.index;
+    }
+    symbolic_ = true;
+  } catch (std::exception& e) {
+    // May want to output this information
+    (void)e;  // unused
+  }
 
   // Add symbolic binding equations
   if (fmi_desc.has_child("equ:BindingEquations")) {
@@ -763,11 +810,22 @@ std::string DaeBuilderInternal::generate_model_description(const std::string& gu
   r.set_attribute("generationDateAndTime", iso_8601_time());
   r.set_attribute("variableNamingConvention", "structured");  // flat better?
   if (fmi_major < 3) r.set_attribute("numberOfEventIndicators", "0");
+
   // Model exchange marker
   XmlNode me;
   me.name = "ModelExchange";
   me.set_attribute("modelIdentifier", model_name);  // sanitize name?
   r.children.push_back(me);
+
+  // Default experiment
+  XmlNode def_exp;
+  def_exp.name = "DefaultExperiment";
+  if (!std::isnan(start_time_)) def_exp.set_attribute("startTime", start_time_);
+  if (!std::isnan(stop_time_)) def_exp.set_attribute("stopTime", stop_time_);
+  if (!std::isnan(tolerance_)) def_exp.set_attribute("tolerance", tolerance_);
+  if (!std::isnan(step_size_)) def_exp.set_attribute("stepSize", step_size_);
+  if (!def_exp.attributes.empty()) r.children.push_back(def_exp);
+
   // Model variables
   r.children.push_back(generate_model_variables());
   // Model structure
@@ -890,18 +948,21 @@ void DaeBuilderInternal::update_dependencies() const {
   }
 }
 
-std::vector<std::string> DaeBuilderInternal::export_fmu(const Dict& opts) const {
+Dict DaeBuilderInternal::export_fmu(const Dict& opts) const {
   // Default options
   bool no_warning = false;
+  bool with_serialization = true;
   for (auto&& op : opts) {
     if (op.first == "no_warning") {
       no_warning = op.second;
+    } else if (op.first == "with_serialization") {
+      with_serialization = op.second;
+    } else {
+      casadi_error("No such option: " + op.first);
     }
   }
   // Feature incomplete
   if (!no_warning) casadi_warning("FMU generation is experimental and incomplete")
-  // Return object
-  std::vector<std::string> ret;
   // GUID
   std::string guid = generate_guid();
   // Generate model function
@@ -920,17 +981,45 @@ std::vector<std::string> DaeBuilderInternal::export_fmu(const Dict& opts) const 
   gen.add(dae.forward(1));
   gen.add(dae.reverse(1));
   if (!tfun.is_null()) gen.add(tfun);
-  ret.push_back(gen.generate());
-  ret.push_back(dae_filename + ".h");
+  // Source files
+  std::vector<std::string> sources;
+  sources.push_back(gen.generate());
+  sources.push_back(dae_filename + ".h");
   // Make sure dependencies are up-to-date
   update_dependencies();
   // Generate FMU wrapper file
-  std::string wrapper_filename = generate_wrapper(guid, gen);
-  ret.push_back(wrapper_filename);
+  sources.push_back(generate_wrapper(guid, gen));
   // Generate build description
-  ret.push_back(generate_build_description(ret));
+  sources.push_back(generate_build_description(sources));
+  // Return object
+  Dict ret;
+  for (const std::string& s : sources) ret[s] = "sources";
   // Generate modelDescription file
-  ret.push_back(generate_model_description(guid));
+  ret[generate_model_description(guid)] = ".";
+
+  // Serialize expressions
+  if (with_serialization) {
+    // Layered standard for serialized CasADi
+    std::string serialization_ls = "org.casadi.fmi-ls-serialization";
+    // Serialized oracle
+    std::string oracle_filename = "oracle.casadi";
+    shared_from_this<DaeBuilder>().oracle().save(oracle_filename);
+    ret[oracle_filename] = "extra/" + serialization_ls;
+    // Manifest file for serialized expressions
+    XmlNode r;
+    r.name = "fmiLayeredStandardManifest";
+    r.set_attribute("fmi-ls:fmi-ls-name", serialization_ls);
+    r.set_attribute("fmi-ls:fmi-ls-version", "1.0.0");
+    r.set_attribute("fmi-ls:fmi-ls-description",
+      "Layered standard for serialized CasADi expressions in FMU");
+    XmlNode manifest;
+    manifest.children.push_back(r);
+    // Export and add to return
+    XmlFile xml_file("tinyxml");
+    std::string manifest_filename = "fmi-ls-manifest.xml";
+    xml_file.dump(manifest_filename, manifest);
+    ret[manifest_filename] = "extra/" + serialization_ls;
+  }
   // Return list of files
   return ret;
 }
@@ -977,8 +1066,10 @@ std::string DaeBuilderInternal::generate_wrapper(const std::string& guid,
     const CodeGenerator& gen) const {
   // Create file
   std::string wrapper_filename = name_ + "_wrap.c";
-  std::ofstream f;
-  CodeGenerator::file_open(f, wrapper_filename, false);
+
+  auto f_ptr = Filesystem::ofstream_ptr(wrapper_filename);
+  std::ostream& f = *f_ptr;
+  CodeGenerator::stream_open(f, false);
 
   // Add includes
   f << "#include <fmi3Functions.h>\n"
@@ -1046,7 +1137,7 @@ std::string DaeBuilderInternal::generate_wrapper(const std::string& guid,
   f << CodeGenerator::fmu_helpers(name_);
 
   // Finalize file
-  CodeGenerator::file_close(f, false);
+  CodeGenerator::stream_close(f, false);
   return wrapper_filename;
 }
 
@@ -2790,7 +2881,7 @@ Variable& DaeBuilderInternal::add(const std::string& name, Causality causality,
   if (!type.empty()) v.type = to_enum<Type>(type);
   v.causality = causality;
   v.variability = variability;
-  if (!start.empty()) v.start = start;
+  if (!start.empty()) v.value = v.start = start;
   if (!initial.empty()) v.initial = to_enum<Initial>(initial);
   if (!unit.empty()) v.unit = unit;
   if (!display_unit.empty()) v.display_unit = display_unit;
@@ -3305,14 +3396,51 @@ void DaeBuilderInternal::import_model_exchange(const XmlNode& n) {
   }
 }
 
-void DaeBuilderInternal::import_model_variables(const XmlNode& modvars) {
+void DaeBuilderInternal::import_model_variables(const XmlNode& modvars,
+    std::vector<casadi_int>& indexmap) {
   // Mapping from derivative variables to corresponding state variables, FMUX only
   std::vector<std::pair<std::string, std::string>> fmi1_der;
 
-  // Add variables
+  // Force any independent variable to appear first
+  std::vector<const XmlNode*> modvars_children;
+
+  // Where is the independent variable?
+  casadi_int independent_index = -1;
+
   for (casadi_int i = 0; i < modvars.size(); ++i) {
     // Get a reference to the variable
     const XmlNode& vnode = modvars[i];
+    std::string causality_str = vnode.attribute<std::string>("causality", "local");
+    if (causality_str=="independent") {
+      independent_index = i;
+      modvars_children.push_back(&vnode);
+    }
+  }
+
+  for (casadi_int i = 0; i < modvars.size(); ++i) {
+    // Get a reference to the variable
+    const XmlNode& vnode = modvars[i];
+    std::string causality_str = vnode.attribute<std::string>("causality", "local");
+    if (causality_str!="independent") {
+      modvars_children.push_back(&vnode);
+    }
+  }
+
+  if (fmi_major_<=2 && independent_index>=0) {
+    indexmap.clear();
+    for (casadi_int i=0; i<independent_index; ++i) {
+      indexmap.push_back(i+1);
+    }
+    indexmap.push_back(0);
+    for (casadi_int i=independent_index+1; i<modvars.size(); ++i) {
+      indexmap.push_back(i);
+    }
+  }
+
+  // Add variables
+  for (const XmlNode* & vnode_ptr : modvars_children) {
+    // Get a reference to the variable
+    const XmlNode& vnode = *vnode_ptr;
 
     // Name of variable
     std::string name = vnode.attribute<std::string>("name");
@@ -3524,7 +3652,8 @@ std::vector<DependenciesKind> DaeBuilderInternal::read_dependencies_kind(
   }
 }
 
-void DaeBuilderInternal::import_model_structure(const XmlNode& n) {
+void DaeBuilderInternal::import_model_structure(const XmlNode& n,
+    const std::vector<casadi_int>& indexmap) {
   // Do not use the automatic selection of outputs based on output causality
   outputs_.clear();
 
@@ -3593,7 +3722,9 @@ void DaeBuilderInternal::import_model_structure(const XmlNode& n) {
     if (n.has_child("Derivatives")) {
       for (auto& e : n["Derivatives"].children) {
         // Get index
-        derivatives_.push_back(e.attribute<casadi_int>("index", 0) - 1);
+        casadi_int index = e.attribute<casadi_int>("index", 0)-1;
+        if (!indexmap.empty()) index = indexmap[index];
+        derivatives_.push_back(index);
         // Corresponding variable
         Variable& v = variable(derivatives_.back());
         // Add to list of states and derivative to list of dependent variables
@@ -3633,8 +3764,9 @@ void DaeBuilderInternal::import_model_structure(const XmlNode& n) {
     if (n.has_child("Derivatives")) {
       // Separate pass for dependencies
       for (auto& e : n["Derivatives"].children) {
+        // Get index
         casadi_int index = e.attribute<casadi_int>("index", 0)-1;
-
+        if (!indexmap.empty()) index = indexmap[index];
         // Corresponding variable
         Variable& v = variable(index);
 
@@ -3660,9 +3792,12 @@ void DaeBuilderInternal::import_model_structure(const XmlNode& n) {
     if (n.has_child("Outputs")) {
       for (auto& e : n["Outputs"].children) {
         // Get index
-        outputs_.push_back(e.attribute<casadi_int>("index", 0) - 1);
+        casadi_int index = e.attribute<casadi_int>("index", 0)-1;
+        if (!indexmap.empty()) index = indexmap[index];
+        outputs_.push_back(index);
         // Corresponding variable
         Variable& v = variable(outputs_.back());
+
         // Get dependencies
         if (e.has_attribute("dependencies")) {
           v.dependencies = read_dependencies(e);
@@ -3697,7 +3832,9 @@ void DaeBuilderInternal::import_model_structure(const XmlNode& n) {
     if (n.has_child("InitialUnknowns")) {
       for (auto& e : n["InitialUnknowns"].children) {
         // Get index
-        initial_unknowns_.push_back(e.attribute<casadi_int>("index", 0) - 1);
+        casadi_int index = e.attribute<casadi_int>("index", 0)-1;
+        if (!indexmap.empty()) index = indexmap[index];
+        initial_unknowns_.push_back(index);
 
         std::vector<casadi_int> dependencies;
         // Get dependencies

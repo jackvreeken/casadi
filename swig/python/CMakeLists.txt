@@ -92,6 +92,53 @@ set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-py3")
 set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DWITH_PYTHON3")
 endif()
 
+# Limited API support for stable ABI
+if(WITH_PYTHON_LIMITED_API)
+  if(NOT "${PYTHON_VERSION_MAJOR}" STREQUAL "3")
+    message(FATAL_ERROR "Python Limited API is only supported with Python 3")
+  endif()
+
+  # Allow specifying the Limited API target version
+  # - "3.8" = "cheating" mode: uses buffer protocol functions not officially in Limited API until 3.11
+  # - "3.11" = fully compliant mode: all used functions are officially in Limited API
+  # Note: 3.7 is not supported because PyImport_GetModule was only added in Python 3.8
+  set(PYTHON_LIMITED_API_TARGET "3.11" CACHE STRING "Python Limited API target version (3.8, 3.11, or 3.14)")
+
+  if(PYTHON_LIMITED_API_TARGET STREQUAL "3.8")
+    set(PYTHON_LIMITED_API_VERSION "0x03080000")  # Python 3.8
+    set(PYTHON_LIMITED_API_MIN "3.8")
+    message(STATUS "Building abi3 wheel for Python 3.8+ (cheating mode - uses de facto stable buffer protocol)")
+  elseif(PYTHON_LIMITED_API_TARGET STREQUAL "3.11")
+    set(PYTHON_LIMITED_API_VERSION "0x030B0000")  # Python 3.11
+    set(PYTHON_LIMITED_API_MIN "3.11")
+    message(STATUS "Building abi3 wheel for Python 3.11+ (fully compliant)")
+  elseif(PYTHON_LIMITED_API_TARGET STREQUAL "3.14")
+    set(PYTHON_LIMITED_API_VERSION "0x030E0000")  # Python 3.14
+    set(PYTHON_LIMITED_API_MIN "3.14")
+    message(STATUS "Building abi3 wheel for Python 3.14+ (fully compliant, modern CPU)")
+  else()
+    message(FATAL_ERROR "PYTHON_LIMITED_API_TARGET must be 3.8, 3.11, or 3.14 (got: ${PYTHON_LIMITED_API_TARGET})")
+  endif()
+
+  # Check Python version requirement (skip when exporting/importing SWIG sources
+  # since the version check will be done when actually using the wheel)
+  if(NOT SWIG_EXPORT AND NOT SWIG_IMPORT)
+    if(PYTHON_VERSION_STRING VERSION_LESS "${PYTHON_LIMITED_API_MIN}")
+      message(FATAL_ERROR "Python Limited API build targeting ${PYTHON_LIMITED_API_MIN}+ requires Python ${PYTHON_LIMITED_API_MIN}+ (found ${PYTHON_VERSION_STRING}).")
+    endif()
+  else()
+    message(STATUS "Skipping Python version check for SWIG import/export build (targeting Python ${PYTHON_LIMITED_API_MIN}+)")
+  endif()
+
+  # Note: We do NOT set SWIG_PYTHON_LEGACY_BOOL - the modern bool check
+  # (PyBool_Check) is available in Limited API 3.11+ and provides proper
+  # type checking to prevent lists from being converted to bool.
+
+  # Pass Py_LIMITED_API and version info to SWIG so it can generate conditional code
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+  set(CMAKE_SWIG_FLAGS ${CMAKE_SWIG_FLAGS} "-DPY_VERSION_HEX=${PYTHON_LIMITED_API_VERSION}")
+endif()
+
 if(WITH_PYTHON_GIL_RELEASE)
   set(CMAKE_SWIG_NAME_SUFFIX "_gil_release")
 else()
@@ -134,6 +181,15 @@ add_custom_target(python DEPENDS _casadi)
 add_library(_casadi MODULE ${PYTHON_FILE})
 
 set_target_properties(_casadi PROPERTIES PREFIX "")
+
+# Add compile definitions for Limited API
+if(WITH_PYTHON_LIMITED_API)
+  # Ensure Py_LIMITED_API is defined BEFORE any Python.h includes by adding to compiler flags
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DPy_LIMITED_API=${PYTHON_LIMITED_API_VERSION}")
+
+  target_compile_definitions(_casadi PRIVATE Py_LIMITED_API=${PYTHON_LIMITED_API_VERSION})
+endif()
 if(WIN32 AND NOT CYGWIN)
   set_target_properties(_casadi PROPERTIES SUFFIX ".pyd")
   set(CASADI_PYTHON_LIBRARY_SUFFIX ".pyd")

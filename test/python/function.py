@@ -31,6 +31,9 @@ import pickle
 import os
 import sys
 from casadi.tools import capture_stdout
+import glob
+import gc
+import tempfile
 
 scipy_interpolate = False
 try:
@@ -2207,6 +2210,57 @@ class Functiontests(casadiTestCase):
     self.assertTrue(len(found)==2)
     self.assertTrue("Q" in found)
     self.assertTrue("fwd1_Q" in found)
+    
+  @requiresPlugin(Importer,"shell")
+  def test_jit_directory(self):
+  
+    create_dirs = "ghc-filesystem" not in CasadiMeta.feature_list()
+  
+    abs_temp_dir = tempfile.gettempdir()
+    
+    rel_temp_dir = "jit_dir_test"
+    
+    
+    cwd = os.getcwd()
+    
+    import shutil
+    if os.path.exists(rel_temp_dir):
+        shutil.rmtree(rel_temp_dir)
+        
+    if not os.path.exists("park"):
+        os.makedirs("park")
+    
+    if create_dirs:
+        os.makedirs(os.path.join(rel_temp_dir,"foo"))
+        
+    for temp_dir in ["./", rel_temp_dir,abs_temp_dir]:
+        GlobalOptions.setTempWorkDir(temp_dir)
+        
+        
+        for directory in ["", "foo", abs_temp_dir]:
+            x = MX.sym("x")
+            f = None
+            if True:
+                if os.path.isabs(directory):
+                    dir = directory
+                else:
+                    dir = os.path.join(temp_dir,directory)
+                    
+                for e in glob.glob(os.path.join(dir,"tmp_casadi*")):
+                    os.remove(e)
+                
+                f = Function('f',[x],[x**2],{"jit":True,"compiler":"shell", "jit_options": {"verbose":True, "directory": directory}})
+                # All files in the correct location
+                self.assertTrue(len(glob.glob(os.path.join(dir,"tmp_casadi*")))>1)
+                if "ghc-filesystem" in CasadiMeta.feature_list():
+                    os.chdir("park")
+                f = None
+                gc.collect()
+                os.chdir(cwd)
+                # All files removed
+                self.assertTrue(len(glob.glob(os.path.join(dir,"tmp_casadi*")))==0)
+        
+        GlobalOptions.setTempWorkDir("./")
 
   def test_custom_jacobian(self):
     x = MX.sym("x")
@@ -3450,7 +3504,7 @@ class Functiontests(casadiTestCase):
       lines = """
   casadi_int i, j, k;
   casadi_real *rr, w0, *w1=w+2, w2, *w3=w+8, *w4=w+18, *w5=w+28, *w6=w+33, *w7=w+38, *w8=w+43, *w9=w+68;
-  const casadi_real *cr, *cs, *ct, *wr3, *wr4, *wr6, *wr9;
+  const casadi_real *cs, *ct, *wr3, *wr4, *wr6, *wr9;
   /* #0: @0 = 0 */
   w0 = 0.;
   /* #1: @1 = ones(1x5) */
@@ -3474,12 +3528,9 @@ class Functiontests(casadiTestCase):
   /* #10: @4 = (@2*@4) */
   for (i=0, rr=w4, cs=wr4; i<10; ++i) (*rr++)  = (w2*(*cs++));
   /* #11: @4 = monitor(@4, b) */
-  CASADI_PRINTF("b\\n[");
-    for (i=0, cr=w4; i!=10; ++i) {
-        if (i!=0) CASADI_PRINTF(", ");
-        CASADI_PRINTF("%g", *cr++);
-      }
-    CASADI_PRINTF("]\\n");
+  CASADI_PRINTF("b:\\n");
+  casadi_print_canonical(casadi_s0, w4);
+  CASADI_PRINTF("\\n");
   /* #12: @7 = @4[2:7] */
   for (rr=w7, cs=w4+2; cs!=w4+7; cs+=1) *rr++ = *cs;
   /* #13: @5 = (@5+@7) */
@@ -3731,5 +3782,59 @@ class Functiontests(casadiTestCase):
       print(res)
       ref = {"foo": 1, "bar": {"r": None}}
       cmp(res,ref)
+      
+  def test_simplify(self):
+    x = MX.sym("x",5)
+    y = MX.sym("y",5)
+    f = Function('test_func', [x, y], [x + y])
+
+    # Test simplify without name argument
+    f_simplified = f.simplify()
+    self.assertIsInstance(f_simplified, Function)
+    self.assertEqual(f_simplified.name(), 'test_func')
+
+    # Test simplify with same name argument (should return same function)
+    f_same_name = f.simplify("test_func")
+    self.assertIsInstance(f_same_name, Function)
+    self.assertEqual(f_same_name.name(), 'test_func')
+
+    # Test simplify with different name argument (should return wrapped function with new name)
+    f_renamed = f.simplify("new_name")
+    self.assertIsInstance(f_renamed, Function)
+    self.assertEqual(f_renamed.name(), 'new_name')
+
+    # Test that simplified functions work correctly
+    self.checkfunction_light(f,f_simplified,inputs=[2.0,3.0])
+
+    x = MX.sym("x",5)
+    y = MX.sym("y",5)
+    f = Function('test_func', [x, y], [x])
+    f_simplified = f.simplify()
+
+    self.assertTrue(f.nnz_in(0), 5)
+    self.assertTrue(f_simplified.nnz_in(0), 0)
+
+    # Test that simplified functions work correctly
+    self.checkfunction_light(f,f_simplified,inputs=[2.0,3.0])
+
+
+
+  def test_duplicate_check(self):
+    x = MX()
+    f = Function('f',[x],[2*x])
+    self.assertEqual(f.numel_in(0), 0)
+    f = Function('f',[MX.zeros(0,0)],[2*x])
+    self.assertEqual(f.numel_in(0), 0)
+    f = Function('f',[MX.ones(0,0)],[2*x])
+    self.assertEqual(f.numel_in(0), 0)
+    p = MX.sym("p")
+    with self.assertInException("input arguments must be purely symbolic"):
+        f = Function('f',[x.nz[p]],[2*x])
+        self.assertEqual(f.numel_in(0), 0)
+    x.nz[p] = 3.7
+    with self.assertInException("input arguments must be purely symbolic"):
+        f = Function('f',[x],[3*x])
+        self.assertEqual(f.numel_in(0), 0)
+
 if __name__ == '__main__':
     unittest.main()   
